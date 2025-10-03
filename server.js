@@ -1,4 +1,4 @@
-// server.js (საბოლოო, გამართული ვერსია)
+// server.js (სრული ვერსია გამოსწორებული პორტით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -9,6 +9,8 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
+
+// --- ★★★ მთავარი შესწორება: Railway-სთვის პორტის დინამიკური მინიჭება ★★★ ---
 const port = process.env.PORT || 3000;
 
 // --- გარემოს ცვლადები (Environment Variables) ---
@@ -27,7 +29,6 @@ app.use(bodyParser.urlencoded({ extended: true }));
 // --- სერვისების ინიციალიზაცია ---
 let adminBot, liveChatBot;
 
-// ბოტების ინიციალიზაცია { polling: true }-ის გარეშე
 if (ADMIN_BOT_TOKEN) {
     adminBot = new TelegramBot(ADMIN_BOT_TOKEN);
 }
@@ -131,5 +132,6 @@ app.get('/api/order-status/:orderId', (req, res) => {
 
 // --- სერვერის გაშვება ---
 app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
+  // ლოგებში გამოჩნდება სწორი პორტი, რომელზეც Railway-მ გაუშვა აპლიკაცია
+  console.log(`Server is running on port ${port}`); 
 });
