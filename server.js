@@ -10,7 +10,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // --- მნიშვნელოვანი: ეს მონაცემები უნდა შეავსოთ ჰოსტინგ პლატფორმის Environment Variables-ში ---
-const ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN || '8151755873:AAE5ApDfeDT0akuPw9SeZ2ATwdXhDobJPV4';
+const ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN || '8151755873:AAEBrslgbP49Q3FiTSKAm7fyQchNbUMVSe0';
 const LIVE_CHAT_BOT_TOKEN = process.env.LIVE_CHAT_BOT_TOKEN || '7941086584:AAHGI5dBdR4Gy63Vuih9jJpQ9GRfsCSzTzQ';
 const NOTIFICATION_CHAT_ID = process.env.NOTIFICATION_CHAT_ID || '-4644402426';
 const GMAIL_USER = process.env.GMAIL_USER || 'your-email@gmail.com';
