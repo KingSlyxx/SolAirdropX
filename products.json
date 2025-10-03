@@ -1,1 +1,57 @@
+[
+  {
+    "id": 1,
+    "name": {
+      "ge": "საზაფხულო კაბა",
+      "en": "Summer Dress"
+    },
+    "price": "129.99",
+    "oldPrice": "159.99",
+    "category": "dresses",
+    "gender": "women",
+    "imageUrls": [
+      "https://i.ibb.co/6y18B9M/image-1.png",
+      "https://i.ibb.co/hZ2vWJm/image-2.png",
+      "https://i.ibb.co/C0bN0Gk/image-3.png"
+    ],
+    "sizes": [
+      "XS",
+      "S",
+      "M",
+      "L",
+      "XL",
+      "XXL"
+    ],
+    "description": {
+      "ge": "მსუბუქი და ჰაეროვანი საზაფხულო კაბა, იდეალური ცხელი დღეებისთვის.",
+      "en": "A light and airy summer dress, perfect for hot days."
+    }
+  },
+  {
+    "id": 6,
+    "name": {
+      "ge": "კლასიკური პერანგი",
+      "en": "Classic Shirt"
+    },
+    "price": "110.00",
+    "oldPrice": "140.00",
+    "category": "shirts",
+    "gender": "men",
+    "imageUrls": [
+      "https://i.ibb.co/Q8Qf1dY/pexels-dmitry-zvolskiy-2064505.jpg",
+      "https://i.ibb.co/yWz33J3/pexels-justin-shaifer-1222271.jpg"
+    ],
+    "sizes": [
+      "XS",
+      "S",
+      "M",
+      "L",
+      "XXL"
+    ],
+    "description": {
+      "ge": "დახვეწილი და კლასიკური პერანგი თანამედროვე მამაკაცისთვის.",
+      "en": "A sophisticated and classic shirt for the modern man."
+    }
+  }
+]
 
