@@ -10,11 +10,12 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // --- მნიშვნელოვანი: ეს მონაცემები უნდა შეავსოთ ჰოსტინგ პლატფორმის Environment Variables-ში ---
-const ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN || '8151755873:AAEBrslgbP49Q3FiTSKAm7fyQchNbUMVSe0';
-const LIVE_CHAT_BOT_TOKEN = process.env.LIVE_CHAT_BOT_TOKEN || '7941086584:AAHGI5dBdR4Gy63Vuih9jJpQ9GRfsCSzTzQ';
-const NOTIFICATION_CHAT_ID = process.env.NOTIFICATION_CHAT_ID || '-4644402426';
-const GMAIL_USER = process.env.GMAIL_USER || 'your-email@gmail.com';
-const GMAIL_PASS = process.env.GMAIL_PASS || 'your-gmail-app-password';
+// --- ახალი, გასწორებული კოდი ---
+const ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN;
+const LIVE_CHAT_BOT_TOKEN = process.env.LIVE_CHAT_BOT_TOKEN;
+const NOTIFICATION_CHAT_ID = process.env.NOTIFICATION_CHAT_ID;
+const GMAIL_USER = process.env.GMAIL_USER;
+const GMAIL_PASS = process.env.GMAIL_PASS;
 // --- დასასრული ---
 
 // ბოტების ინიციალიზაცია
@@ -39,13 +40,23 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 // --- მონაცემთა ბაზის სიმულაცია ---
 let products = [
-    { id: 1, name: {ge: 'საზაფხულო კაბა', en: 'Summer Dress'}, price: '129.99', oldPrice: '159.99', category: 'dresses', gender: 'women', 
-      imageUrls: ['https://i.ibb.co/6y18B9M/image-1.png', 'https://i.ibb.co/hZ2vWJm/image-2.png', 'https://i.ibb.co/C0bN0Gk/image-3.png'],
-      sizes: ['XS', 'S', 'M', 'L', 'XL', 'XXL'], description: {ge: 'მსუბუქი და ჰაეროვანი საზაფხულო კაბა, იდეალური ცხელი დღეებისთვის.', en: 'A light and airy summer dress, perfect for hot days.'} },
-    { id: 6, name: {ge: 'კლასიკური პერანგი', en: 'Classic Shirt'}, price: '110.00', oldPrice: '140.00', category: 'shirts', gender: 'men',
-      imageUrls: ['https://i.ibb.co/Q8Qf1dY/pexels-dmitry-zvolskiy-2064505.jpg', 'https://i.ibb.co/yWz33J3/pexels-justin-shaifer-1222271.jpg'],
-      sizes: ['XS', 'S', 'M', 'L', 'XL', 'XXL'], description: {ge: 'დახვეწილი და კლასიკური პერანგი თანამედროვე მამაკაცისთვის.', en: 'A sophisticated and classic shirt for the modern man.'} }
+    { /* ... არსებული პროდუქტი 1 ... */ },
+    { /* ... არსებული პროდუქტი 2 ... */ },
+
+    // --- ახალი პროდუქტის მაგალითი ---
+    { 
+      id: 7, // მიუთითეთ ახალი, უნიკალური ID
+      name: {ge: 'ჯინსის შარვალი', en: 'Denim Jeans'}, 
+      price: '189.99', 
+      oldPrice: '220.00', 
+      category: 'pants', // კატეგორია
+      gender: 'men', // 'men' ან 'women'
+      imageUrls: ['https://your-image-url.com/image1.jpg', 'https://your-image-url.com/image2.jpg'], // თქვენი სურათების ლინკები
+      sizes: ['S', 'M', 'L', 'XL'], 
+      description: {ge: 'კლასიკური სტილის ჯინსის შარვალი ყოველდღიური სტილისთვის.', en: 'Classic style denim jeans for everyday wear.'} 
+    }
 ];
+
 
 let dummyOrders = {
     "12345": "თქვენი შეკვეთა მუშავდება.",
