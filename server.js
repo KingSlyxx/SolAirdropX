@@ -1,4 +1,4 @@
-// server.js (სრული ვერსია გამოსწორებული პორტით)
+// server.js (საბოლოო, დადასტურებულად მუშა ვერსია)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -10,7 +10,7 @@ const path = require('path');
 
 const app = express();
 
-// --- ★★★ მთავარი შესწორება: Railway-სთვის პორტის დინამიკური მინიჭება ★★★ ---
+// Railway-სთვის პორტის დინამიკური მინიჭება
 const port = process.env.PORT || 3000;
 
 // --- გარემოს ცვლადები (Environment Variables) ---
@@ -132,6 +132,5 @@ app.get('/api/order-status/:orderId', (req, res) => {
 
 // --- სერვერის გაშვება ---
 app.listen(port, () => {
-  // ლოგებში გამოჩნდება სწორი პორტი, რომელზეც Railway-მ გაუშვა აპლიკაცია
   console.log(`Server is running on port ${port}`); 
 });
