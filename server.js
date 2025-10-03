@@ -8,7 +8,7 @@ const fs = require('fs').promises; // ვიყენებთ fs.promises-ს �
 const path = require('path');
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 8080;
 
 // --- გარემოს ცვლადები (Environment Variables) ---
 // გამოიყენეთ თქვენს მიერ მოწოდებული ტოკენები და ID
