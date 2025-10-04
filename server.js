@@ -1,4 +1,4 @@
-// server.js (საბოლოო ვერსია, გამარტივებული CORS წესებით)
+// server.js (საბოლოო ვერსია, გამარტივებული CORS წესებით და რედაქტირების ფუნქციით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -66,9 +66,7 @@ const initializeDatabase = async () => {
     }
 };
 
-// --- [საბოლოო შესწორება] CORS-ის წესების გამარტივება ---
 app.use(cors());
-
 app.use(express.static('public'));
 app.use(bodyParser.json());
 
@@ -122,41 +120,64 @@ if (ADMIN_BOT_TOKEN) {
         }
     });
     
-    // --- [დამატებული კოდი] --- ღილაკებზე დაჭერის დამუშავება ---
     adminBot.on('callback_query', async (callbackQuery) => {
         const msg = callbackQuery.message;
-        const data = callbackQuery.data; // მაგ: "delete_1" ან "edit_1"
+        const data = callbackQuery.data;
         const chatId = msg.chat.id;
 
-        const [action, productId] = data.split('_'); // action = "delete", productId = "1"
+        const [action, payload] = data.split('_'); 
 
         if (action === 'delete') {
+            const productId = payload;
             try {
-                // ვშლით პროდუქტს ბაზიდან
                 await pool.query('DELETE FROM products WHERE id = $1', [productId]);
-                
-                // ვპასუხობთ ღილაკს, რომ ლოდინის ანიმაცია გაითიშოს
                 await adminBot.answerCallbackQuery(callbackQuery.id, { text: 'პროდუქტი წაიშალა!' });
-                
-                // ვშლით იმ კონკრეტულ შეტყობინებას, რომელზეც ღილაკი იყო
                 await adminBot.deleteMessage(chatId, msg.message_id);
-
                 adminBot.sendMessage(chatId, `✅ პროდუქტი ID:${productId} წარმატებით წაიშალა.`);
-
             } catch (err) {
                 console.error('Error deleting product:', err);
                 await adminBot.answerCallbackQuery(callbackQuery.id, { text: 'წაშლისას მოხდა შეცდომა', show_alert: true });
             }
         }
 
+        // --- [რედაქტირების ლოგიკა] ---
         if (action === 'edit') {
-            // რედაქტირების ლოგიკა უფრო კომპლექსურია და მოითხოვს დამატებით დიალოგს.
-            // ამ ეტაპზე, უბრალოდ ვატყობინებთ მომხმარებელს, რომ ფუნქცია დამუშავების პროცესშია.
+            const productId = payload;
+            const editOptionsKeyboard = {
+                inline_keyboard: [
+                    [{ text: 'სახელი (ქარ.)', callback_data: `editfield_name_ge_${productId}` }, { text: 'სახელი (ინგ.)', callback_data: `editfield_name_en_${productId}` }],
+                    [{ text: 'ფასი', callback_data: `editfield_price_${productId}` }, { text: 'ძვ. ფასი', callback_data: `editfield_old_price_${productId}` }],
+                    [{ text: 'აღწერა (ქარ.)', callback_data: `editfield_description_ge_${productId}` }, { text: 'აღწერა (ინგ.)', callback_data: `editfield_description_en_${productId}` }],
+                    [{ text: 'კატეგორია', callback_data: `editfield_category_${productId}` }, { text: 'ზომები', callback_data: `editfield_sizes_${productId}` }],
+                    [{ text: 'გაუქმება', callback_data: 'editcancel' }]
+                ]
+            };
             await adminBot.answerCallbackQuery(callbackQuery.id);
-            adminBot.sendMessage(chatId, `პროდუქტის (ID: ${productId}) რედაქტირების ფუნქცია დამუშავების პროცესშია.`);
+            adminBot.sendMessage(chatId, `აირჩიეთ ველი, რომლის რედაქტირებაც გსურთ პროდუქტისთვის (ID: ${productId}):`, { reply_markup: editOptionsKeyboard });
         }
+        
+        if (action === 'editfield') {
+            const [_, field, productId] = data.split('_'); // data = "editfield_name_ge_1"
+            userState[chatId] = { 
+                step: 'awaiting_edit_value', 
+                productId: productId,
+                fieldToEdit: field
+            };
+            
+            // ვშლით წინა შეტყობინებას (ღილაკებიან მენიუს)
+            await adminBot.deleteMessage(chatId, msg.message_id);
+
+            adminBot.sendMessage(chatId, `შეიყვანეთ ახალი მნიშვნელობა ველისთვის: "${field}"`, {
+                reply_markup: { force_reply: true }
+            });
+        }
+
+        if (action === 'editcancel') {
+             await adminBot.deleteMessage(chatId, msg.message_id);
+             await adminBot.answerCallbackQuery(callbackQuery.id, { text: 'რედაქტირება გაუქმდა' });
+        }
+        // --- [რედაქტირების ლოგიკის დასასრული] ---
     });
-    // --- [დამატებული კოდის დასასრული] ---
 
     adminBot.onText(/პროდუქტის დამატება/, (msg) => {
         userState[msg.chat.id] = { step: 'awaiting_name_ge', product: {} };
@@ -164,7 +185,6 @@ if (ADMIN_BOT_TOKEN) {
     });
     
     adminBot.on('message', async (msg) => {
-        // ეს ხაზი მნიშვნელოვანია, რათა callback_query-ს message-ები არ აურიოს ამ ლოგიკაში
         if (msg.reply_to_message || (userState[msg.chat.id] && msg.text && !msg.text.startsWith('/'))) {
             const commandText = ['პროდუქტების ნახვა', 'პროდუქტის დამატება'];
             if (!msg.text || msg.text.startsWith('/') || commandText.includes(msg.text)) return;
@@ -174,7 +194,8 @@ if (ADMIN_BOT_TOKEN) {
 
             try {
                 switch (state.step) {
-                     case 'awaiting_name_ge':
+                    // --- [პროდუქტის დამატების ლოგიკა] ---
+                    case 'awaiting_name_ge':
                         state.product.name_ge = msg.text;
                         state.step = 'awaiting_name_en';
                         adminBot.sendMessage(msg.chat.id, 'შეიყვანეთ პროდუქტის სახელი (ინგლისურად):', { reply_markup: { force_reply: true } });
@@ -238,8 +259,35 @@ if (ADMIN_BOT_TOKEN) {
                             resetState(msg.chat.id);
                         }
                         break;
+
+                    // --- [ახალი ლოგიკა რედაქტირებისთვის] ---
+                    case 'awaiting_edit_value': {
+                        const { productId, fieldToEdit } = state;
+                        let newValue = msg.text;
+
+                        // ველების ტიპების შემოწმება და კონვერტაცია
+                        if (fieldToEdit === 'price' || fieldToEdit === 'old_price') {
+                            newValue = parseFloat(newValue);
+                            if (isNaN(newValue)) {
+                                adminBot.sendMessage(msg.chat.id, 'გთხოვთ, შეიყვანოთ კორექტული რიცხვი.');
+                                return; // ვწყვეტთ შესრულებას
+                            }
+                        }
+                        if (fieldToEdit === 'sizes') {
+                            newValue = msg.text.split(',').map(s => s.trim().toUpperCase());
+                        }
+
+                        // SQL Injection-ისგან დაცული დინამიური query
+                        const query = `UPDATE products SET ${fieldToEdit} = $1 WHERE id = $2`;
+                        await pool.query(query, [newValue, productId]);
+
+                        adminBot.sendMessage(msg.chat.id, `✅ პროდუქტი ID:${productId} განახლდა. ველი "${fieldToEdit}" წარმატებით შეიცვალა.`, { reply_markup: mainMenuKeyboard });
+                        resetState(msg.chat.id);
+                        break;
+                    }
                 }
             } catch (e) {
+                console.error("Bot on message error:", e);
                 adminBot.sendMessage(msg.chat.id, `დაფიქსირდა შეცდომა: ${e.message}\nსცადეთ თავიდან.`);
                 resetState(msg.chat.id);
             }
@@ -272,6 +320,7 @@ if (ADMIN_BOT_TOKEN) {
     });
 }
 
+// --- API ენდფოინთები ---
 app.get('/api/products', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM products ORDER BY id ASC');
