@@ -1,4 +1,4 @@
-// server.js (სწორი ვერსია, ფოტოების რედაქტირების ფუნქციით)
+// server.js (სრული და განახლებული ვერსია)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -12,7 +12,7 @@ const { Pool } = require('pg');
 const app = express();
 const port = process.env.PORT || 8080;
 
-// --- გარემოს ცვლადები ---
+// --- გარემოს ცვლადები (აუცილებლად უნდა იყოს მითითებული თქვენს hosting გარემოში) ---
 const ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN;
 const LIVE_CHAT_BOT_TOKEN = process.env.LIVE_CHAT_BOT_TOKEN;
 const TELEGRAM_CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID;
@@ -27,6 +27,7 @@ const pool = new Pool({
   },
 });
 
+// --- ბაზის ინიციალიზაცია (ცხრილების შექმნა თუ არ არსებობს) ---
 const initializeDatabase = async () => {
     try {
         const client = await pool.connect();
@@ -66,12 +67,15 @@ const initializeDatabase = async () => {
     }
 };
 
+// --- Express-ის საწყისი კონფიგურაცია ---
 app.use(cors());
 app.use(express.static('public'));
 app.use(bodyParser.json());
 
+// --- გლობალური ცვლადი ბოტის დიალოგებისთვის ---
 const userState = {};
 
+// --- დამხმარე ფუნქცია ბაზიდან მიღებული პროდუქტის ფორმატირებისთვის ---
 const formatProductFromDb = (dbRow) => ({
     id: dbRow.id,
     name: { ge: dbRow.name_ge, en: dbRow.name_en },
@@ -85,6 +89,7 @@ const formatProductFromDb = (dbRow) => ({
     qcImageUrls: dbRow.qc_image_urls || [],
 });
 
+// --- ადმინის ბოტის ლოგიკა ---
 let adminBot;
 if (ADMIN_BOT_TOKEN) {
     adminBot = new TelegramBot(ADMIN_BOT_TOKEN, { polling: true });
@@ -120,15 +125,16 @@ if (ADMIN_BOT_TOKEN) {
         }
     });
     
+    // --- Inline ღილაკებზე რეაგირება (წაშლა, რედაქტირება) ---
     adminBot.on('callback_query', async (callbackQuery) => {
         const msg = callbackQuery.message;
         const data = callbackQuery.data;
         const chatId = msg.chat.id;
 
-        const [action, payload] = data.split('_'); 
+        const [action] = data.split('_'); 
 
         if (action === 'delete') {
-            const productId = payload;
+            const productId = data.split('_')[1];
             try {
                 await pool.query('DELETE FROM products WHERE id = $1', [productId]);
                 await adminBot.answerCallbackQuery(callbackQuery.id, { text: 'პროდუქტი წაიშალა!' });
@@ -141,7 +147,7 @@ if (ADMIN_BOT_TOKEN) {
         }
 
         if (action === 'edit') {
-            const productId = payload;
+            const productId = data.split('_')[1];
             const editOptionsKeyboard = {
                 inline_keyboard: [
                     [{ text: 'სახელი (ქარ.)', callback_data: `editfield_name_ge_${productId}` }, { text: 'სახელი (ინგ.)', callback_data: `editfield_name_en_${productId}` }],
@@ -188,11 +194,13 @@ if (ADMIN_BOT_TOKEN) {
         }
     });
 
+    // --- პროდუქტის დამატების დიალოგის დაწყება ---
     adminBot.onText(/პროდუქტის დამატება/, (msg) => {
         userState[msg.chat.id] = { step: 'awaiting_name_ge', product: {} };
         adminBot.sendMessage(msg.chat.id, 'შეიყვანეთ პროდუქტის სახელი (ქართულად):', { reply_markup: { force_reply: true } });
     });
     
+    // --- დიალოგებზე (Reply) პასუხების დამუშავება ---
     adminBot.on('message', async (msg) => {
         if (msg.reply_to_message || (userState[msg.chat.id] && msg.text && !msg.text.startsWith('/'))) {
             const commandText = ['პროდუქტების ნახვა', 'პროდუქტის დამატება'];
@@ -203,6 +211,7 @@ if (ADMIN_BOT_TOKEN) {
 
             try {
                 switch (state.step) {
+                    // --- პროდუქტის დამატების ეტაპები ---
                     case 'awaiting_name_ge':
                         state.product.name_ge = msg.text;
                         state.step = 'awaiting_name_en';
@@ -268,6 +277,7 @@ if (ADMIN_BOT_TOKEN) {
                         }
                         break;
 
+                    // --- პროდუქტის რედაქტირების ეტაპი (ტექსტური ველები) ---
                     case 'awaiting_edit_value': {
                         const { productId, fieldToEdit } = state;
                         let newValue = msg.text;
@@ -290,6 +300,7 @@ if (ADMIN_BOT_TOKEN) {
                         resetState(msg.chat.id);
                         break;
                     }
+                    // --- პროდუქტის რედაქტირების ეტაპი (ფოტოები) ---
                     case 'awaiting_new_images': {
                         if (msg.text.toLowerCase() === 'done') {
                             const { productId, targetArray, newImageUrls } = state;
@@ -316,9 +327,11 @@ if (ADMIN_BOT_TOKEN) {
         }
     });
 
+    // --- ფოტოს მიღების და imgbb-ზე ატვირთვის ლოგიკა ---
     adminBot.on('photo', async (msg) => {
         const chatId = msg.chat.id;
         const state = userState[chatId];
+        // ამოწმებს, არის თუ არა ბოტი ფოტოს მიღების მოლოდინში (დამატებისას ან რედაქტირებისას)
         if (!state || !['awaiting_images', 'awaiting_qc_images', 'awaiting_new_images'].includes(state.step)) return;
 
         if (!IMGBB_API_KEY) return adminBot.sendMessage(chatId, 'imgbb.com API გასაღები არ არის მითითებული სერვერზე.');
@@ -336,9 +349,9 @@ if (ADMIN_BOT_TOKEN) {
             if (uploadResponse.data.success) {
                 const imageUrl = uploadResponse.data.data.url;
                 
-                if (state.step === 'awaiting_new_images') {
+                if (state.step === 'awaiting_new_images') { // თუ რედაქტირების პროცესში ვართ
                     state.newImageUrls.push(imageUrl);
-                } else {
+                } else { // თუ დამატების პროცესში ვართ
                     const targetArray = state.step === 'awaiting_images' ? 'imageUrls' : 'qcImageUrls';
                     if (!state.product[targetArray]) state.product[targetArray] = [];
                     state.product[targetArray].push(imageUrl);
@@ -355,7 +368,7 @@ if (ADMIN_BOT_TOKEN) {
     });
 }
 
-// --- API ენდფოინთები ---
+// --- API ენდფოინთი فرونتენდისთვის პროდუქტების წამოსაღებად ---
 app.get('/api/products', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM products ORDER BY id ASC');
@@ -367,7 +380,9 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
+
+// --- სერვერის გაშვება ---
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
-  initializeDatabase();
+  initializeDatabase(); // სერვერის გაშვებისას ხდება ბაზის ინიციალიზაცია
 });
