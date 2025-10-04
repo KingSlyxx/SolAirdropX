@@ -1,4 +1,4 @@
-// server.js (სრული, განახლებული ვერსია PostgreSQL-ით)
+// server.js (სრული, გასწორებული ვერსია)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -7,7 +7,7 @@ const cors = require('cors');
 const path = require('path');
 const axios = require('axios');
 const FormData = require('form-data');
-const { Pool } = require('pg'); // --- [ახალი] PostgreSQL ბიბლიოთეკის იმპორტი
+const { Pool } = require('pg');
 
 const app = express();
 const port = process.env.PORT || 8080;
@@ -17,24 +17,22 @@ const ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN;
 const LIVE_CHAT_BOT_TOKEN = process.env.LIVE_CHAT_BOT_TOKEN;
 const TELEGRAM_CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID;
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
-// --- [ახალი] Railway ავტომატურად მოგვაწვდის ამ ცვლადს ბაზის შექმნის შემდეგ
 const DATABASE_URL = process.env.DATABASE_URL;
 
-// --- [ახალი] PostgreSQL ბაზასთან კავშირის დამყარება ---
+// --- PostgreSQL ბაზასთან კავშირის დამყარება ---
 const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: {
-    rejectUnauthorized: false, // ეს ხაზი აუცილებელია Railway-ზე კავშირისთვის
+    rejectUnauthorized: false,
   },
 });
 
-// --- [ახალი] ფუნქცია, რომელიც ამოწმებს ბაზასთან კავშირს და ქმნის ცხრილებს, თუ არ არსებობს
+// --- ფუნქცია, რომელიც ამოწმებს ბაზასთან კავშირს და ქმნის ცხრილებს ---
 const initializeDatabase = async () => {
     try {
         const client = await pool.connect();
         console.log('Successfully connected to PostgreSQL database.');
 
-        // პროდუქტების ცხრილის შექმნა
         await client.query(`
             CREATE TABLE IF NOT EXISTS products (
                 id SERIAL PRIMARY KEY,
@@ -52,7 +50,6 @@ const initializeDatabase = async () => {
             );
         `);
 
-        // შეკვეთების ცხრილის შექმნა
          await client.query(`
             CREATE TABLE IF NOT EXISTS orders (
                 order_id VARCHAR(20) PRIMARY KEY,
@@ -68,7 +65,6 @@ const initializeDatabase = async () => {
         client.release();
     } catch (err) {
         console.error('Failed to initialize database:', err);
-        // თუ ბაზასთან კავშირი ვერ დამყარდა, პროცესი უნდა შეჩერდეს
         process.exit(1);
     }
 };
@@ -78,9 +74,6 @@ app.use(cors());
 app.use(express.static('public'));
 app.use(bodyParser.json());
 
-// --- [წაშლილია] ---
-// readFileData და writeFileData ფუნქციები აღარ გვჭირდება
-
 // --- ჩატის სესიების მართვის ობიექტები ---
 const liveChatSessions = {};
 const activeChats = {};
@@ -88,7 +81,7 @@ const operatorSelection = {};
 const userState = {};
 
 // =================================================================
-// 1. ადმინისტრატორის ბოტის ლოგიკა (განახლებული ბაზასთან სამუშაოდ)
+// 1. ადმინისტრატორის ბოტის ლოგიკა
 // =================================================================
 let adminBot;
 if (ADMIN_BOT_TOKEN) {
@@ -102,7 +95,6 @@ if (ADMIN_BOT_TOKEN) {
 
     const resetState = (chatId) => delete userState[chatId];
     
-    // --- [შეცვლილია] პროდუქტების წამოღება ბაზიდან ---
     const formatProductFromDb = (dbRow) => ({
         id: dbRow.id,
         name: { ge: dbRow.name_ge, en: dbRow.name_en },
@@ -155,7 +147,6 @@ if (ADMIN_BOT_TOKEN) {
         adminBot.sendMessage(msg.chat.id, 'შეიყვანეთ პროდუქტის სახელი (ქართულად):', { reply_markup: { force_reply: true } });
     });
 
-    // --- [შეცვლილია] წაშლა და რედაქტირება ბაზაში ---
     adminBot.on('callback_query', async (cb) => {
         const msg = cb.message;
         const [action, ...params] = cb.data.split('_');
@@ -172,8 +163,7 @@ if (ADMIN_BOT_TOKEN) {
                     await pool.query('DELETE FROM products WHERE id = $1', [productId]);
                     adminBot.editMessageText(`პროდუქტი (ID: ${productId}) წარმატებით წაიშალა.`, { chat_id: msg.chat.id, message_id: msg.message_id });
                     break;
-                // ... რედაქტირების ლოგიკა იგივე რჩება, რადგან ის უბრალოდ იწყებს პროცესს. შენახვა ხდება message listener-ში.
-                 case 'cancel-delete':
+                case 'cancel-delete':
                     adminBot.editMessageText('წაშლა გაუქმდა.', { chat_id: msg.chat.id, message_id: msg.message_id });
                     break;
                 case 'edit':
@@ -182,7 +172,6 @@ if (ADMIN_BOT_TOKEN) {
                         reply_markup: { inline_keyboard: [
                             [{ text: 'სახელი (GE)', callback_data: `edit-field_name_ge_${productId}` }],
                             [{ text: 'ფასი', callback_data: `edit-field_price_${productId}` }],
-                            // დაამატეთ სხვა ველებიც საჭიროებისამებრ
                             [{ text: 'პროდ. სურათები (გადაწერა)', callback_data: `edit-field_image_urls_${productId}` }],
                         ]}
                     });
@@ -199,7 +188,6 @@ if (ADMIN_BOT_TOKEN) {
         adminBot.answerCallbackQuery(cb.id);
     });
     
-    // ფოტოების ატვირთვის ლოგიკა უცვლელი რჩება
     adminBot.on('photo', async (msg) => {
         const chatId = msg.chat.id;
         const state = userState[chatId];
@@ -242,9 +230,7 @@ if (ADMIN_BOT_TOKEN) {
         }
     });
 
-    // --- [შეცვლილია] პროდუქტის დამატება/რედაქტირება ბაზაში ---
     adminBot.on('message', async (msg) => {
-        // ... (ლოგიკის დასაწყისი უცვლელია)
         const commandText = ['პროდუქტების ნახვა', 'პროდუქტის დამატება'];
         if (!msg.text || msg.text.startsWith('/') || commandText.includes(msg.text)) return;
         
@@ -253,7 +239,6 @@ if (ADMIN_BOT_TOKEN) {
 
         try {
             switch (state.step) {
-                // ... (ველების შევსების ლოგიკა იგივეა)
                  case 'awaiting_name_ge':
                     state.product.name_ge = msg.text;
                     state.step = 'awaiting_name_en';
@@ -274,7 +259,30 @@ if (ADMIN_BOT_TOKEN) {
                     state.step = 'awaiting_description_ge';
                     adminBot.sendMessage(msg.chat.id, 'შეიყვანეთ პროდუქტის აღწერა (ქართულად):', { reply_markup: { force_reply: true } });
                     break;
-                 // დაამატეთ ყველა ველი აქ...
+
+                // --- [გასწორებული] დამატებულია გამოტოვებული ნაწილები ---
+                case 'awaiting_description_ge':
+                    state.product.description_ge = msg.text;
+                    state.step = 'awaiting_description_en';
+                    adminBot.sendMessage(msg.chat.id, 'შეიყვანეთ პროდუქტის აღწერა (ინგლისურად):', { reply_markup: { force_reply: true } });
+                    break;
+                case 'awaiting_description_en':
+                    state.product.description_en = msg.text;
+                    state.step = 'awaiting_category';
+                    adminBot.sendMessage(msg.chat.id, 'შეიყვანეთ კატეგორია (მაგ: dresses, shirts):', { reply_markup: { force_reply: true } });
+                    break;
+                case 'awaiting_category':
+                    state.product.category = msg.text.toLowerCase();
+                    state.step = 'awaiting_gender';
+                    adminBot.sendMessage(msg.chat.id, 'მიუთითეთ სქესი (women ან men):', { reply_markup: { force_reply: true } });
+                    break;
+                case 'awaiting_gender':
+                    state.product.gender = msg.text.toLowerCase();
+                    state.step = 'awaiting_sizes';
+                    adminBot.sendMessage(msg.chat.id, 'შეიყვანეთ ზომები მძიმით გამოყოფით (მაგ: S,M,L):', { reply_markup: { force_reply: true } });
+                    break;
+                // --- გასწორების დასასრული ---
+
                 case 'awaiting_sizes':
                     state.product.sizes = msg.text.split(',').map(s => s.trim().toUpperCase());
                     state.step = 'awaiting_images';
@@ -290,7 +298,6 @@ if (ADMIN_BOT_TOKEN) {
                  case 'awaiting_qc_images':
                     if (msg.text.toLowerCase() === 'done') {
                         const p = state.product;
-                        // --- [ახალი] ბაზაში ჩაწერა ---
                         const query = `
                             INSERT INTO products (name_ge, name_en, price, old_price, description_ge, description_en, category, gender, sizes, image_urls, qc_image_urls)
                             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -306,12 +313,9 @@ if (ADMIN_BOT_TOKEN) {
                     }
                     break;
                 
-                // --- [ახალი] რედაქტირებული ველის ბაზაში შენახვა ---
                 case 'awaiting_edit_value':
                     const { productId, field } = state;
                     const value = msg.text;
-                    // SQL Injection-ისგან დაცვა: ველის სახელი არ უნდა მოდიოდეს პირდაპირ მომხმარებლისგან, მაგრამ ამ შემთხვევაში ადმინისგან მოდის და კონტროლირებადია.
-                    // რეალურ სამყაროში, აქ ველების სიის ვალიდაცია კარგი პრაქტიკაა.
                     const updateQuery = `UPDATE products SET ${field} = $1 WHERE id = $2`;
                     await pool.query(updateQuery, [value, productId]);
                     
@@ -327,18 +331,16 @@ if (ADMIN_BOT_TOKEN) {
 }
 
 // =================================================================
-// 2. ლაივ ჩატის ბოტის ლოგიკა (უცვლელი)
+// 2. ლაივ ჩატის ბოტის ლოგიკა
 // =================================================================
-// ... თქვენი ლაივ ჩატის კოდი აქ ...
+// ... (თქვენი ლაივ ჩატის კოდი აქ უცვლელად)
 
 // =================================================================
-// 3. API მარშრუტები (Endpoints) (განახლებული ბაზასთან სამუშაოდ)
+// 3. API მარშრუტები (Endpoints)
 // =================================================================
-
 app.get('/api/products', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM products ORDER BY id ASC');
-        // --- [ახალი] ფრონტისთვის საჭირო ფორმატში გადაყვანა
         const products = result.rows.map(formatProductFromDb);
         res.json(products);
     } catch (err) {
@@ -350,7 +352,6 @@ app.get('/api/products', async (req, res) => {
 app.post('/api/submit-order', async (req, res) => {
     try {
         const newOrder = req.body;
-        // უნიკალური ID-ის გენერაცია
         const orderId = 'LXRY' + Date.now();
         
         const query = `
@@ -361,7 +362,7 @@ app.post('/api/submit-order', async (req, res) => {
         await pool.query(query, values);
 
         if (TELEGRAM_CHANNEL_ID && adminBot) {
-            let message = `ახალი შეკვეთა: #${orderId}\n...`; // შეტყობინების ფორმირება
+            let message = `ახალი შეკვეთა: #${orderId}\n...`; 
             adminBot.sendMessage(TELEGRAM_CHANNEL_ID, message);
         }
         res.status(201).json({ success: true, orderId });
@@ -384,9 +385,10 @@ app.get('/api/order-status/:id', async (req, res) => {
     }
 });
 
-// ... სხვა API მარშრუტები (live-chat, sales-data) უცვლელი რჩება ...
+// ... (სხვა API მარშრუტები აქ უცვლელად)
 
-// --- [ახალი] სერვერის გაშვებამდე ბაზის ინიციალიზაცია
+
+// --- სერვერის გაშვება ---
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
   initializeDatabase();
