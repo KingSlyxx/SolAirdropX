@@ -1,4 +1,4 @@
-// server.js (საბოლოო ვერსია, განახლებული CORS წესებით)
+// server.js (საბოლოო, გასწორებული ვერსია)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -65,12 +65,8 @@ const initializeDatabase = async () => {
     }
 };
 
-// --- [განახლებული] CORS კონფიგურაცია ---
-const allowedOrigins = [
-    'http://h27360.web2.maze-tech.ru',
-    'https://h27360.web2.maze-tech.ru'
-];
-
+// --- CORS კონფიგურაცია ---
+const allowedOrigins = [ 'http://h27360.web2.maze-tech.ru', 'https://h27360.web2.maze-tech.ru' ];
 const corsOptions = {
     origin: function (origin, callback) {
         if (!origin || allowedOrigins.indexOf(origin) !== -1) {
@@ -81,16 +77,29 @@ const corsOptions = {
     },
     optionsSuccessStatus: 200
 };
-
 app.use(cors(corsOptions));
-// --- განახლების დასასრული ---
 
 app.use(express.static('public'));
 app.use(bodyParser.json());
 
 const userState = {};
-let adminBot;
 
+// --- [გასწორება] ფუნქცია გადატანილია გლობალურ დონეზე ---
+const formatProductFromDb = (dbRow) => ({
+    id: dbRow.id,
+    name: { ge: dbRow.name_ge, en: dbRow.name_en },
+    price: dbRow.price,
+    oldPrice: dbRow.old_price,
+    description: { ge: dbRow.description_ge, en: dbRow.description_en },
+    category: dbRow.category,
+    gender: dbRow.gender,
+    sizes: dbRow.sizes || [],
+    imageUrls: dbRow.image_urls || [],
+    qcImageUrls: dbRow.qc_image_urls || [],
+});
+// ----------------------------------------------------
+
+let adminBot;
 if (ADMIN_BOT_TOKEN) {
     adminBot = new TelegramBot(ADMIN_BOT_TOKEN, { polling: true });
     console.log('Admin Bot is running...');
@@ -98,19 +107,6 @@ if (ADMIN_BOT_TOKEN) {
     const mainMenuKeyboard = { keyboard: [[{ text: 'პროდუქტების ნახვა' }], [{ text: 'პროდუქტის დამატება' }]], resize_keyboard: true };
     const resetState = (chatId) => delete userState[chatId];
     
-    const formatProductFromDb = (dbRow) => ({
-        id: dbRow.id,
-        name: { ge: dbRow.name_ge, en: dbRow.name_en },
-        price: dbRow.price,
-        oldPrice: dbRow.old_price,
-        description: { ge: dbRow.description_ge, en: dbRow.description_en },
-        category: dbRow.category,
-        gender: dbRow.gender,
-        sizes: dbRow.sizes || [],
-        imageUrls: dbRow.image_urls || [],
-        qcImageUrls: dbRow.qc_image_urls || [],
-    });
-
     adminBot.onText(/\/start/, (msg) => {
         resetState(msg.chat.id);
         adminBot.sendMessage(msg.chat.id, 'მოგესალმებით! აირჩიეთ მოქმედება:', { reply_markup: mainMenuKeyboard });
@@ -120,9 +116,10 @@ if (ADMIN_BOT_TOKEN) {
         try {
             const result = await pool.query('SELECT * FROM products ORDER BY id ASC');
             if (result.rows.length === 0) return adminBot.sendMessage(msg.chat.id, "პროდუქტები არ არის დამატებული.");
+            
             await adminBot.sendMessage(msg.chat.id, "პროდუქტების სია:");
             for (const p of result.rows) {
-                const f = formatProductFromDb(p);
+                const f = formatProductFromDb(p); // ეს ფუნქცია ახლა ხელმისაწვდომია
                 const caption = `ID: ${f.id}\nსახელი: ${f.name.ge}\nფასი: ₾${f.price}${f.oldPrice ? ` (ძველი: ₾${f.oldPrice})` : ''}`;
                 const inlineKeyboard = { inline_keyboard: [[{ text: 'რედაქტირება', callback_data: `edit_${p.id}` }, { text: 'წაშლა', callback_data: `delete_${p.id}` }]] };
                 if (f.imageUrls && f.imageUrls.length > 0) {
@@ -142,6 +139,7 @@ if (ADMIN_BOT_TOKEN) {
         adminBot.sendMessage(msg.chat.id, 'შეიყვანეთ პროდუქტის სახელი (ქართულად):', { reply_markup: { force_reply: true } });
     });
     
+    // ... დანარჩენი კოდი უცვლელია ...
     adminBot.on('message', async (msg) => {
         const commandText = ['პროდუქტების ნახვა', 'პროდუქტის დამატება'];
         if (!msg.text || msg.text.startsWith('/') || commandText.includes(msg.text)) return;
@@ -251,7 +249,7 @@ if (ADMIN_BOT_TOKEN) {
 app.get('/api/products', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM products ORDER BY id ASC');
-        const products = result.rows.map(formatProductFromDb);
+        const products = result.rows.map(formatProductFromDb); // ეს ფუნქცია ახლა ხელმისაწვდომია
         res.json(products);
     } catch (err) {
         console.error('API /api/products error:', err);
