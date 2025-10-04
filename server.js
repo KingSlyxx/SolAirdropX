@@ -1,4 +1,4 @@
-// server.js (სრული, განახლებული CORS კონფიგურაციით)
+// server.js (საბოლოო ვერსია, განახლებული CORS წესებით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -65,32 +65,37 @@ const initializeDatabase = async () => {
     }
 };
 
-// --- [მნიშვნელოვანი შესწორება] CORS კონფიგურაცია ---
+// --- [განახლებული] CORS კონფიგურაცია ---
+const allowedOrigins = [
+    'http://h27360.web2.maze-tech.ru',
+    'https://h27360.web2.maze-tech.ru'
+];
+
 const corsOptions = {
-    // აქ მითითებულია თქვენი საიტის მისამართი
-    origin: 'http://h27360.web2.maze-tech.ru', 
-    optionsSuccessStatus: 200 
+    origin: function (origin, callback) {
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    optionsSuccessStatus: 200
 };
+
 app.use(cors(corsOptions));
-// --- შესწორების დასასრული ---
+// --- განახლების დასასრული ---
 
 app.use(express.static('public'));
 app.use(bodyParser.json());
 
 const userState = {};
-
-// ... (დანარჩენი კოდი უცვლელია, აქედან შეგიძლიათ აღარ დააკოპიროთ თუ გინდათ, მთავარი ზედა ნაწილი იყო) ...
-
 let adminBot;
+
 if (ADMIN_BOT_TOKEN) {
     adminBot = new TelegramBot(ADMIN_BOT_TOKEN, { polling: true });
     console.log('Admin Bot is running...');
 
-    const mainMenuKeyboard = {
-        keyboard: [[{ text: 'პროდუქტების ნახვა' }], [{ text: 'პროდუქტის დამატება' }]],
-        resize_keyboard: true,
-    };
-
+    const mainMenuKeyboard = { keyboard: [[{ text: 'პროდუქტების ნახვა' }], [{ text: 'პროდუქტის დამატება' }]], resize_keyboard: true };
     const resetState = (chatId) => delete userState[chatId];
     
     const formatProductFromDb = (dbRow) => ({
@@ -114,22 +119,14 @@ if (ADMIN_BOT_TOKEN) {
     adminBot.onText(/პროდუქტების ნახვა/, async (msg) => {
         try {
             const result = await pool.query('SELECT * FROM products ORDER BY id ASC');
-            const products = result.rows;
-            if (products.length === 0) {
-                return adminBot.sendMessage(msg.chat.id, "პროდუქტები არ არის დამატებული.");
-            }
+            if (result.rows.length === 0) return adminBot.sendMessage(msg.chat.id, "პროდუქტები არ არის დამატებული.");
             await adminBot.sendMessage(msg.chat.id, "პროდუქტების სია:");
-            for (const p of products) {
-                const formattedProduct = formatProductFromDb(p);
-                const caption = `ID: ${formattedProduct.id}\nსახელი: ${formattedProduct.name.ge}\nფასი: ₾${formattedProduct.price}${formattedProduct.oldPrice ? ` (ძველი: ₾${formattedProduct.oldPrice})` : ''}`;
-                const inlineKeyboard = {
-                    inline_keyboard: [[
-                        { text: 'რედაქტირება', callback_data: `edit_${p.id}` },
-                        { text: 'წაშლა', callback_data: `delete_${p.id}` }
-                    ]]
-                };
-                if (formattedProduct.imageUrls && formattedProduct.imageUrls.length > 0) {
-                    await adminBot.sendPhoto(msg.chat.id, formattedProduct.imageUrls[0], { caption, reply_markup: inlineKeyboard });
+            for (const p of result.rows) {
+                const f = formatProductFromDb(p);
+                const caption = `ID: ${f.id}\nსახელი: ${f.name.ge}\nფასი: ₾${f.price}${f.oldPrice ? ` (ძველი: ₾${f.oldPrice})` : ''}`;
+                const inlineKeyboard = { inline_keyboard: [[{ text: 'რედაქტირება', callback_data: `edit_${p.id}` }, { text: 'წაშლა', callback_data: `delete_${p.id}` }]] };
+                if (f.imageUrls && f.imageUrls.length > 0) {
+                    await adminBot.sendPhoto(msg.chat.id, f.imageUrls[0], { caption, reply_markup: inlineKeyboard });
                 } else {
                     await adminBot.sendMessage(msg.chat.id, caption, { reply_markup: inlineKeyboard });
                 }
@@ -141,10 +138,10 @@ if (ADMIN_BOT_TOKEN) {
     });
 
     adminBot.onText(/პროდუქტის დამატება/, (msg) => {
-        userState[msg.chat.id] = { step: 'awaiting_name_ge', product: { imageUrls: [], qcImageUrls: [] } };
+        userState[msg.chat.id] = { step: 'awaiting_name_ge', product: {} };
         adminBot.sendMessage(msg.chat.id, 'შეიყვანეთ პროდუქტის სახელი (ქართულად):', { reply_markup: { force_reply: true } });
     });
-
+    
     adminBot.on('message', async (msg) => {
         const commandText = ['პროდუქტების ნახვა', 'პროდუქტის დამატება'];
         if (!msg.text || msg.text.startsWith('/') || commandText.includes(msg.text)) return;
@@ -211,15 +208,10 @@ if (ADMIN_BOT_TOKEN) {
                         const p = state.product;
                         const query = `
                             INSERT INTO products (name_ge, name_en, price, old_price, description_ge, description_en, category, gender, sizes, image_urls, qc_image_urls)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                            RETURNING id;
-                        `;
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id;`;
                         const values = [p.name_ge, p.name_en, p.price, p.old_price, p.description_ge, p.description_en, p.category, p.gender, p.sizes, p.imageUrls, p.qcImageUrls || []];
-                        
                         const result = await pool.query(query, values);
-                        const newId = result.rows[0].id;
-
-                        adminBot.sendMessage(msg.chat.id, `პროდუქტი (ID: ${newId}) წარმატებით დაემატა.`, { reply_markup: mainMenuKeyboard });
+                        adminBot.sendMessage(msg.chat.id, `პროდუქტი (ID: ${result.rows[0].id}) წარმატებით დაემატა.`, { reply_markup: mainMenuKeyboard });
                         resetState(msg.chat.id);
                     }
                     break;
@@ -233,35 +225,22 @@ if (ADMIN_BOT_TOKEN) {
     adminBot.on('photo', async (msg) => {
         const chatId = msg.chat.id;
         const state = userState[chatId];
-        
         if (!state || !['awaiting_images', 'awaiting_qc_images'].includes(state.step)) return;
-        
-        if (!IMGBB_API_KEY) {
-            return adminBot.sendMessage(chatId, 'imgbb.com API გასაღები არ არის მითითებული სერვერზე.');
-        }
-
+        if (!IMGBB_API_KEY) return adminBot.sendMessage(chatId, 'imgbb.com API გასაღები არ არის მითითებული სერვერზე.');
         try {
             const fileId = msg.photo[msg.photo.length - 1].file_id;
             const fileLink = await adminBot.getFileLink(fileId);
             const imageResponse = await axios.get(fileLink, { responseType: 'arraybuffer' });
             const form = new FormData();
             form.append('image', imageResponse.data, { filename: 'telegram_photo.jpg' });
-
             const uploadResponse = await axios.post(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, form, { headers: form.getHeaders() });
-
             if (uploadResponse.data.success) {
                 const imageUrl = uploadResponse.data.data.url;
-                if (state.step === 'awaiting_images') {
-                    if (!state.product.imageUrls) state.product.imageUrls = [];
-                    state.product.imageUrls.push(imageUrl);
-                } else if (state.step === 'awaiting_qc_images') {
-                    if (!state.product.qcImageUrls) state.product.qcImageUrls = [];
-                    state.product.qcImageUrls.push(imageUrl);
-                }
+                const targetArray = state.step === 'awaiting_images' ? 'imageUrls' : 'qcImageUrls';
+                if (!state.product[targetArray]) state.product[targetArray] = [];
+                state.product[targetArray].push(imageUrl);
                 adminBot.sendMessage(chatId, `ფოტო აიტვირთა. გამოაგზავნეთ შემდეგი ან დაწერეთ 'done'.`);
-            } else {
-                throw new Error(uploadResponse.data.error.message);
-            }
+            } else { throw new Error(uploadResponse.data.error.message); }
         } catch (e) {
             console.error('Image upload failed:', e);
             adminBot.sendMessage(chatId, `ფოტოს ატვირთვა ვერ მოხერხდა: ${e.message}`);
