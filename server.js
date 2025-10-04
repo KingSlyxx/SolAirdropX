@@ -1,4 +1,4 @@
-// server.js (საბოლოო ვერსია, ფოტოების რედაქტირების ფუნქციით)
+// server.js (სწორი ვერსია, ფოტოების რედაქტირების ფუნქციით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -148,10 +148,8 @@ if (ADMIN_BOT_TOKEN) {
                     [{ text: 'ფასი', callback_data: `editfield_price_${productId}` }, { text: 'ძვ. ფასი', callback_data: `editfield_old_price_${productId}` }],
                     [{ text: 'აღწერა (ქარ.)', callback_data: `editfield_description_ge_${productId}` }, { text: 'აღწერა (ინგ.)', callback_data: `editfield_description_en_${productId}` }],
                     [{ text: 'კატეგორია', callback_data: `editfield_category_${productId}` }, { text: 'ზომები', callback_data: `editfield_sizes_${productId}` }],
-                    // --- [ახალი ღილაკები ფოტოებისთვის] ---
                     [{ text: 'ძირითადი ფოტოები', callback_data: `editfield_image_urls_${productId}` }],
                     [{ text: 'ხარისხის ფოტოები', callback_data: `editfield_qc_image_urls_${productId}` }],
-                    // ---
                     [{ text: 'გაუქმება', callback_data: 'editcancel' }]
                 ]
             };
@@ -162,18 +160,16 @@ if (ADMIN_BOT_TOKEN) {
         if (action === 'editfield') {
             const [_, field, productId] = data.split('_');
             
-            // --- [ლოგიკა ფოტოების რედაქტირებისთვის] ---
             if (field === 'image_urls' || field === 'qc_image_urls') {
                 userState[chatId] = {
                     step: 'awaiting_new_images',
                     productId: productId,
                     targetArray: field,
-                    newImageUrls: [] // ვქმნით ცარიელ მასივს ახალი ფოტოებისთვის
+                    newImageUrls: []
                 };
                 await adminBot.deleteMessage(chatId, msg.message_id);
                 adminBot.sendMessage(chatId, `ატვირთეთ ახალი ფოტო(ები) ველისთვის "${field}".\n❗ ძველი ფოტოები წაიშლება.\nროდესაც დაასრულებთ, დაწერეთ 'done'.`);
             } else {
-            // --- [არსებული ლოგიკა სხვა ველებისთვის] ---
                 userState[chatId] = { 
                     step: 'awaiting_edit_value', 
                     productId: productId,
@@ -294,14 +290,13 @@ if (ADMIN_BOT_TOKEN) {
                         resetState(msg.chat.id);
                         break;
                     }
-                    // --- [ახალი case ფოტოების განახლებისთვის] ---
                     case 'awaiting_new_images': {
                         if (msg.text.toLowerCase() === 'done') {
                             const { productId, targetArray, newImageUrls } = state;
 
                             if (newImageUrls.length === 0 && targetArray === 'image_urls') {
                                 adminBot.sendMessage(chatId, 'შეცდომა: ძირითადი ფოტოების ველი ცარიელი ვერ იქნება. გთხოვთ, ატვირთოთ მინიმუმ ერთი ფოტო.');
-                                return; // ვწყვეტთ, რომ მომხმარებელმა ატვირთოს ფოტო
+                                return;
                             }
 
                             const query = `UPDATE products SET ${targetArray} = $1 WHERE id = $2`;
@@ -324,7 +319,6 @@ if (ADMIN_BOT_TOKEN) {
     adminBot.on('photo', async (msg) => {
         const chatId = msg.chat.id;
         const state = userState[chatId];
-        // --- [ვამატებთ ახალ state-ს ფოტოს მიღებისას] ---
         if (!state || !['awaiting_images', 'awaiting_qc_images', 'awaiting_new_images'].includes(state.step)) return;
 
         if (!IMGBB_API_KEY) return adminBot.sendMessage(chatId, 'imgbb.com API გასაღები არ არის მითითებული სერვერზე.');
@@ -342,10 +336,9 @@ if (ADMIN_BOT_TOKEN) {
             if (uploadResponse.data.success) {
                 const imageUrl = uploadResponse.data.data.url;
                 
-                // --- [ვამოწმებთ, რედაქტირების პროცესში ვართ თუ დამატების] ---
                 if (state.step === 'awaiting_new_images') {
-                    state.newImageUrls.push(imageUrl); // ვამატებთ ახალ ფოტოს დროებით მასივში
-                } else { // ეს არის პროდუქტის დამატების ძველი ლოგიკა
+                    state.newImageUrls.push(imageUrl);
+                } else {
                     const targetArray = state.step === 'awaiting_images' ? 'imageUrls' : 'qcImageUrls';
                     if (!state.product[targetArray]) state.product[targetArray] = [];
                     state.product[targetArray].push(imageUrl);
