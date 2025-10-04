@@ -1,0 +1,541 @@
+[
+  {
+    "orderId": "LXRY381629",
+    "customer": {
+      "firstName": "გიორგი",
+      "lastName": "ბერიძე",
+      "address": "ჭავჭავაძის გამზ. 34",
+      "city": "თბილისი",
+      "phone": "+995599123456",
+      "email": "g.beridze@example.com"
+    },
+    "items": [
+      {
+        "id": 1,
+        "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" },
+        "price": "900.00",
+        "size": "42"
+      },
+      {
+        "id": 2,
+        "name": { "ge": "კლასიკური პერანგი", "en": "Classic Shirt" },
+        "price": "110.00",
+        "size": "L"
+      }
+    ],
+    "totalPrice": 1010,
+    "date": "2025-10-03T14:22:18.932Z"
+  },
+  {
+    "orderId": "LXRY938172",
+    "customer": {
+      "firstName": "ნინო",
+      "lastName": "კაპანაძე",
+      "address": "რუსთაველის გამზ. 12",
+      "city": "ბათუმი",
+      "phone": "+995577987654",
+      "email": "n.kapanadze@example.com"
+    },
+    "items": [
+      {
+        "id": 1,
+        "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" },
+        "price": "900.00",
+        "size": "38"
+      }
+    ],
+    "totalPrice": 900,
+    "date": "2025-10-02T11:05:45.112Z"
+  },
+  {
+    "orderId": "LXRY123456",
+    "customer": {
+      "firstName": "ლევან",
+      "lastName": "წიკლაური",
+      "address": "აღმაშენებლის გამზ. 150",
+      "city": "ქუთაისი",
+      "phone": "+995555112233",
+      "email": "l.tsiklauri@example.com"
+    },
+    "items": [
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "44" },
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "41" }
+    ],
+    "totalPrice": 1800,
+    "date": "2025-09-30T09:15:10.432Z"
+  },
+  {
+    "orderId": "LXRY789012",
+    "customer": {
+      "firstName": "თამარ",
+      "lastName": "გელაშვილი",
+      "address": "ფალიაშვილის ქ. 22",
+      "city": "თბილისი",
+      "phone": "+995591445566",
+      "email": "t.gelashvili@example.com"
+    },
+    "items": [
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "39" },
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "43" },
+      { "id": 2, "name": { "ge": "კლასიკური პერანგი", "en": "Classic Shirt" }, "price": "110.00", "size": "M" }
+    ],
+    "totalPrice": 1910,
+    "date": "2025-09-28T18:40:00.000Z"
+  },
+  {
+    "orderId": "LXRY235813",
+    "customer": {
+      "firstName": "დავით",
+      "lastName": "მაისურაძე",
+      "address": "წერეთლის გამზ. 45",
+      "city": "თბილისი",
+      "phone": "+995571346790",
+      "email": "d.maisuradze@example.com"
+    },
+    "items": [
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "45" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-09-25T12:00:30.812Z"
+  },
+  {
+    "orderId": "LXRY112358",
+    "customer": {
+      "firstName": "მარიამ",
+      "lastName": "ჯაფარიძე",
+      "address": "გორგასალის ქ. 3",
+      "city": "ბათუმი",
+      "phone": "+995568122134",
+      "email": "m.japaridze@example.com"
+    },
+    "items": [
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "37" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-09-22T16:55:00.000Z"
+  },
+  {
+    "orderId": "LXRY888231",
+    "customer": {
+      "firstName": "სანდრო",
+      "lastName": "აბაშიძე",
+      "address": "პეკინის გამზ. 19",
+      "city": "თბილისი",
+      "phone": "+995593888777",
+      "email": "s.abashidze@example.com"
+    },
+    "items": [
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "42" },
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "42" },
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "42" }
+    ],
+    "totalPrice": 2700,
+    "date": "2025-09-20T20:10:05.123Z"
+  },
+  {
+    "orderId": "LXRY555123",
+    "customer": {
+      "firstName": "ანა",
+      "lastName": "ლორთქიფანიძე",
+      "address": "ყაზბეგის გამზ. 24",
+      "city": "თბილისი",
+      "phone": "+995555123123",
+      "email": "a.lortkipanidze@example.com"
+    },
+    "items": [
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "38" },
+        { "id": 2, "name": { "ge": "კლასიკური პერანგი", "en": "Classic Shirt" }, "price": "110.00", "size": "S" }
+    ],
+    "totalPrice": 1010,
+    "date": "2025-09-18T10:00:00.000Z"
+  },
+  {
+    "orderId": "LXRY772211",
+    "customer": {
+      "firstName": "ირაკლი",
+      "lastName": "ჭავჭავაძე",
+      "address": "თამარ მეფის გამზ. 5",
+      "city": "ზუგდიდი",
+      "phone": "+995579772211",
+      "email": "i.chavchavadze@example.com"
+    },
+    "items": [
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "43" },
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "43" }
+    ],
+    "totalPrice": 1800,
+    "date": "2025-09-15T15:30:12.345Z"
+  },
+  {
+    "orderId": "LXRY345678",
+    "customer": {
+      "firstName": "ქეთევან",
+      "lastName": "ორბელიანი",
+      "address": "კოსტავას ქ. 77",
+      "city": "თბილისი",
+      "phone": "+995598345678",
+      "email": "k.orbeliani@example.com"
+    },
+    "items": [
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "40" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-09-11T13:21:00.000Z"
+  },
+  {
+    "orderId": "LXRY987123",
+    "customer": {
+      "firstName": "ბექა",
+      "lastName": "გოგოლაძე",
+      "address": "გამსახურდიას გამზ. 1",
+      "city": "სოხუმი",
+      "phone": "+995570987123",
+      "email": "b.gogoladze@example.com"
+    },
+    "items": [
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "44" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-09-08T19:00:00.000Z"
+  },
+  {
+    "orderId": "LXRY202510",
+    "customer": {
+      "firstName": "ელენე",
+      "lastName": "შენგელია",
+      "address": "ბარათაშვილის ქ. 33",
+      "city": "ფოთი",
+      "phone": "+995595202510",
+      "email": "e.shengelia@example.com"
+    },
+    "items": [
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "37" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-09-05T22:45:00.000Z"
+  },
+  {
+    "orderId": "LXRY001122",
+    "customer": {
+      "firstName": "ზურაბ",
+      "lastName": "ერისთავი",
+      "address": "მელიქიშვილის გამზ. 10",
+      "city": "თბილისი",
+      "phone": "+995551001122",
+      "email": "z.eristavi@example.com"
+    },
+    "items": [
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "41" },
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "41" }
+    ],
+    "totalPrice": 1800,
+    "date": "2025-09-01T11:11:11.111Z"
+  },
+  {
+    "orderId": "LXRY334455",
+    "customer": {
+      "firstName": "სოფიო",
+      "lastName": "წერეთელი",
+      "address": "გურამიშვილის გამზ. 14",
+      "city": "თბილისი",
+      "phone": "+995574334455",
+      "email": "s.tsereteli@example.com"
+    },
+    "items": [
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "39" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-08-28T14:30:00.000Z"
+  },
+  {
+    "orderId": "LXRY667788",
+    "customer": {
+      "firstName": "ალექსანდრე",
+      "lastName": "ყაზბეგი",
+      "address": "ილია ჭავჭავაძის გამზ. 1",
+      "city": "თბილისი",
+      "phone": "+995599667788",
+      "email": "a.kazbegi@example.com"
+    },
+    "items": [
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "46" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-08-25T09:00:00.000Z"
+  },
+  {
+    "orderId": "LXRY990011",
+    "customer": {
+      "firstName": "ლიკა",
+      "lastName": "ჩხეიძე",
+      "address": "ვაჟა-ფშაველას გამზ. 71",
+      "city": "თბილისი",
+      "phone": "+995577990011",
+      "email": "l.chkheidze@example.com"
+    },
+    "items": [
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "36" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-08-21T18:18:18.181Z"
+  },
+   {
+    "orderId": "LXRY383329",
+    "customer": {
+      "firstName": "გიორგი",
+      "lastName": "ბერიძე",
+      "address": "ჭავჭავაძის გამზ. 34",
+      "city": "თბილისი",
+      "phone": "+995599123456",
+      "email": "g.beridze@example.com"
+    },
+    "items": [
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "42" },
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "42" }
+    ],
+    "totalPrice": 1800,
+    "date": "2025-10-03T14:22:18.932Z"
+  },
+  {
+    "orderId": "LXRY938173",
+    "customer": {
+      "firstName": "ნინო",
+      "lastName": "კაპანაძე",
+      "address": "რუსთაველის გამზ. 12",
+      "city": "ბათუმი",
+      "phone": "+995577987654",
+      "email": "n.kapanadze@example.com"
+    },
+    "items": [
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "38" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-10-02T11:05:45.112Z"
+  },
+  {
+    "orderId": "LXRY123457",
+    "customer": {
+      "firstName": "ლევან",
+      "lastName": "წიკლაური",
+      "address": "აღმაშენებლის გამზ. 150",
+      "city": "ქუთაისი",
+      "phone": "+995555112233",
+      "email": "l.tsiklauri@example.com"
+    },
+    "items": [
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "44" },
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "41" }
+    ],
+    "totalPrice": 1800,
+    "date": "2025-09-30T09:15:10.432Z"
+  },
+  {
+    "orderId": "LXRY789013",
+    "customer": {
+      "firstName": "თამარ",
+      "lastName": "გელაშვილი",
+      "address": "ფალიაშვილის ქ. 22",
+      "city": "თბილისი",
+      "phone": "+995591445566",
+      "email": "t.gelashvili@example.com"
+    },
+    "items": [
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "39" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-09-28T18:40:00.000Z"
+  },
+  {
+    "orderId": "LXRY235814",
+    "customer": {
+      "firstName": "დავით",
+      "lastName": "მაისურაძე",
+      "address": "წერეთლის გამზ. 45",
+      "city": "თბილისი",
+      "phone": "+995571346790",
+      "email": "d.maisuradze@example.com"
+    },
+    "items": [
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "45" },
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "45" }
+    ],
+    "totalPrice": 1800,
+    "date": "2025-09-25T12:00:30.812Z"
+  },
+  {
+    "orderId": "LXRY112359",
+    "customer": {
+      "firstName": "მარიამ",
+      "lastName": "ჯაფარიძე",
+      "address": "გორგასალის ქ. 3",
+      "city": "ბათუმი",
+      "phone": "+995568122134",
+      "email": "m.japaridze@example.com"
+    },
+    "items": [
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "37" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-09-22T16:55:00.000Z"
+  },
+  {
+    "orderId": "LXRY888232",
+    "customer": {
+      "firstName": "სანდრო",
+      "lastName": "აბაშიძე",
+      "address": "პეკინის გამზ. 19",
+      "city": "თბილისი",
+      "phone": "+995593888777",
+      "email": "s.abashidze@example.com"
+    },
+    "items": [
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "42" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-09-20T20:10:05.123Z"
+  },
+  {
+    "orderId": "LXRY555124",
+    "customer": {
+      "firstName": "ანა",
+      "lastName": "ლორთქიფანიძე",
+      "address": "ყაზბეგის გამზ. 24",
+      "city": "თბილისი",
+      "phone": "+995555123123",
+      "email": "a.lortkipanidze@example.com"
+    },
+    "items": [
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "38" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-09-18T10:00:00.000Z"
+  },
+  {
+    "orderId": "LXRY772212",
+    "customer": {
+      "firstName": "ირაკლი",
+      "lastName": "ჭავჭავაძე",
+      "address": "თამარ მეფის გამზ. 5",
+      "city": "ზუგდიდი",
+      "phone": "+995579772211",
+      "email": "i.chavchavadze@example.com"
+    },
+    "items": [
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "43" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-09-15T15:30:12.345Z"
+  },
+  {
+    "orderId": "LXRY345679",
+    "customer": {
+      "firstName": "ქეთევან",
+      "lastName": "ორბელიანი",
+      "address": "კოსტავას ქ. 77",
+      "city": "თბილისი",
+      "phone": "+995598345678",
+      "email": "k.orbeliani@example.com"
+    },
+    "items": [
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "40" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-09-11T13:21:00.000Z"
+  },
+  {
+    "orderId": "LXRY987124",
+    "customer": {
+      "firstName": "ბექა",
+      "lastName": "გოგოლაძე",
+      "address": "გამსახურდიას გამზ. 1",
+      "city": "სოხუმი",
+      "phone": "+995570987123",
+      "email": "b.gogoladze@example.com"
+    },
+    "items": [
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "44" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-09-08T19:00:00.000Z"
+  },
+  {
+    "orderId": "LXRY202511",
+    "customer": {
+      "firstName": "ელენე",
+      "lastName": "შენგელია",
+      "address": "ბარათაშვილის ქ. 33",
+      "city": "ფოთი",
+      "phone": "+995595202510",
+      "email": "e.shengelia@example.com"
+    },
+    "items": [
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "37" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-09-05T22:45:00.000Z"
+  },
+  {
+    "orderId": "LXRY001123",
+    "customer": {
+      "firstName": "ზურაბ",
+      "lastName": "ერისთავი",
+      "address": "მელიქიშვილის გამზ. 10",
+      "city": "თბილისი",
+      "phone": "+995551001122",
+      "email": "z.eristavi@example.com"
+    },
+    "items": [
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "41" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-09-01T11:11:11.111Z"
+  },
+  {
+    "orderId": "LXRY334456",
+    "customer": {
+      "firstName": "სოფიო",
+      "lastName": "წერეთელი",
+      "address": "გურამიშვილის გამზ. 14",
+      "city": "თბილისი",
+      "phone": "+995574334455",
+      "email": "s.tsereteli@example.com"
+    },
+    "items": [
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "39" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-08-28T14:30:00.000Z"
+  },
+  {
+    "orderId": "LXRY667789",
+    "customer": {
+      "firstName": "ალექსანდრე",
+      "lastName": "ყაზბეგი",
+      "address": "ილია ჭავჭავაძის გამზ. 1",
+      "city": "თბილისი",
+      "phone": "+995599667788",
+      "email": "a.kazbegi@example.com"
+    },
+    "items": [
+        { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "46" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-08-25T09:00:00.000Z"
+  },
+  {
+    "orderId": "LXRY990012",
+    "customer": {
+      "firstName": "ლიკა",
+      "lastName": "ჩხეიძე",
+      "address": "ვაჟა-ფშაველას გამზ. 71",
+      "city": "თბილისი",
+      "phone": "+995577990011",
+      "email": "l.chkheidze@example.com"
+    },
+    "items": [
+      { "id": 1, "name": { "ge": "LV SKATE SNEAKER", "en": "LV SKATE SNEAKER" }, "price": "900.00", "size": "36" }
+    ],
+    "totalPrice": 900,
+    "date": "2025-08-21T18:18:18.181Z"
+  }
+]
