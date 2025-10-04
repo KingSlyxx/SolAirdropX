@@ -160,7 +160,7 @@ if (ADMIN_BOT_TOKEN) {
                 ]
             };
             await adminBot.answerCallbackQuery(callbackQuery.id);
-            adminBot.sendMessage(chatId, `აირჩიეთ ველი, რომლის რედაქტირებაც გსურთ პროდუქტისთვის (ID: ${productId}):`, { reply_markup: editOptionsKeyboard });
+            await adminBot.sendMessage(chatId, `აირჩიეთ ველი, რომლის რედაქტირებაც გსურთ პროდუქტისთვის (ID: ${productId}):`, { reply_markup: editOptionsKeyboard });
         }
         
         if (action === 'editfield') {
@@ -174,7 +174,7 @@ if (ADMIN_BOT_TOKEN) {
                     newImageUrls: []
                 };
                 await adminBot.deleteMessage(chatId, msg.message_id);
-                adminBot.sendMessage(chatId, `ატვირთეთ ახალი ფოტო(ები) ველისთვის "${field}".\n❗ ძველი ფოტოები წაიშლება.\nროდესაც დაასრულებთ, დაწერეთ 'done'.`);
+                await adminBot.sendMessage(chatId, `ატვირთეთ ახალი ფოტო(ები) ველისთვის "${field}".\n❗ ძველი ფოტოები წაიშლება.\nროდესაც დაასრულებთ, დაწერეთ 'done'.`);
             } else {
                 userState[chatId] = { 
                     step: 'awaiting_edit_value', 
@@ -182,7 +182,7 @@ if (ADMIN_BOT_TOKEN) {
                     fieldToEdit: field
                 };
                 await adminBot.deleteMessage(chatId, msg.message_id);
-                adminBot.sendMessage(chatId, `შეიყვანეთ ახალი მნიშვნელობა ველისთვის: "${field}"`, {
+                await adminBot.sendMessage(chatId, `შეიყვანეთ ახალი მნიშვნელობა ველისთვის: "${field}"`, {
                     reply_markup: { force_reply: true }
                 });
             }
@@ -285,8 +285,7 @@ if (ADMIN_BOT_TOKEN) {
                         if (fieldToEdit === 'price' || fieldToEdit === 'old_price') {
                             newValue = parseFloat(newValue);
                             if (isNaN(newValue)) {
-                                adminBot.sendMessage(msg.chat.id, 'გთხოვთ, შეიყვანოთ კორექტული რიცხვი.');
-                                return;
+                                return adminBot.sendMessage(msg.chat.id, 'გთხოვთ, შეიყვანოთ კორექტული რიცხვი.');
                             }
                         }
                         if (fieldToEdit === 'sizes') {
@@ -306,8 +305,7 @@ if (ADMIN_BOT_TOKEN) {
                             const { productId, targetArray, newImageUrls } = state;
 
                             if (newImageUrls.length === 0 && targetArray === 'image_urls') {
-                                adminBot.sendMessage(chatId, 'შეცდომა: ძირითადი ფოტოების ველი ცარიელი ვერ იქნება. გთხოვთ, ატვირთოთ მინიმუმ ერთი ფოტო.');
-                                return;
+                                return adminBot.sendMessage(chatId, 'შეცდომა: ძირითადი ფოტოების ველი ცარიელი ვერ იქნება. გთხოვთ, ატვირთოთ მინიმუმ ერთი ფოტო.');
                             }
 
                             const query = `UPDATE products SET ${targetArray} = $1 WHERE id = $2`;
