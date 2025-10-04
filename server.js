@@ -1,4 +1,4 @@
-// server.js (საბოლოო, გასწორებული ვერსია)
+// server.js (საბოლოო ვერსია, გამარტივებული CORS წესებით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -47,6 +47,7 @@ const initializeDatabase = async () => {
                 qc_image_urls TEXT[]
             );
         `);
+        console.log('Products table is ready.');
         await client.query(`
             CREATE TABLE IF NOT EXISTS orders (
                 order_id VARCHAR(20) PRIMARY KEY,
@@ -57,7 +58,7 @@ const initializeDatabase = async () => {
                 created_at TIMESTAMPTZ DEFAULT NOW()
             );
         `);
-        console.log('Tables are successfully created or already exist.');
+        console.log('Orders table is ready.');
         client.release();
     } catch (err) {
         console.error('Failed to initialize database:', err);
@@ -65,26 +66,16 @@ const initializeDatabase = async () => {
     }
 };
 
-// --- CORS კონფიგურაცია ---
-const allowedOrigins = [ 'http://h27360.web2.maze-tech.ru', 'https://h27360.web2.maze-tech.ru' ];
-const corsOptions = {
-    origin: function (origin, callback) {
-        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
-    optionsSuccessStatus: 200
-};
-app.use(cors(corsOptions));
+// --- [საბოლოო შესწორება] CORS-ის წესების გამარტივება ---
+// ეს ეუბნება სერვერს, რომ ენდოს ნებისმიერი მისამართიდან მოსულ მოთხოვნას.
+app.use(cors());
+// --- შესწორების დასასრული ---
 
 app.use(express.static('public'));
 app.use(bodyParser.json());
 
 const userState = {};
 
-// --- [გასწორება] ფუნქცია გადატანილია გლობალურ დონეზე ---
 const formatProductFromDb = (dbRow) => ({
     id: dbRow.id,
     name: { ge: dbRow.name_ge, en: dbRow.name_en },
@@ -97,7 +88,6 @@ const formatProductFromDb = (dbRow) => ({
     imageUrls: dbRow.image_urls || [],
     qcImageUrls: dbRow.qc_image_urls || [],
 });
-// ----------------------------------------------------
 
 let adminBot;
 if (ADMIN_BOT_TOKEN) {
@@ -119,7 +109,7 @@ if (ADMIN_BOT_TOKEN) {
             
             await adminBot.sendMessage(msg.chat.id, "პროდუქტების სია:");
             for (const p of result.rows) {
-                const f = formatProductFromDb(p); // ეს ფუნქცია ახლა ხელმისაწვდომია
+                const f = formatProductFromDb(p);
                 const caption = `ID: ${f.id}\nსახელი: ${f.name.ge}\nფასი: ₾${f.price}${f.oldPrice ? ` (ძველი: ₾${f.oldPrice})` : ''}`;
                 const inlineKeyboard = { inline_keyboard: [[{ text: 'რედაქტირება', callback_data: `edit_${p.id}` }, { text: 'წაშლა', callback_data: `delete_${p.id}` }]] };
                 if (f.imageUrls && f.imageUrls.length > 0) {
@@ -129,7 +119,7 @@ if (ADMIN_BOT_TOKEN) {
                 }
             }
         } catch (err) {
-            console.error(err);
+            console.error('Bot view products error:', err);
             adminBot.sendMessage(msg.chat.id, "პროდუქტების ჩატვირთვისას მოხდა შეცდომა.");
         }
     });
@@ -139,7 +129,6 @@ if (ADMIN_BOT_TOKEN) {
         adminBot.sendMessage(msg.chat.id, 'შეიყვანეთ პროდუქტის სახელი (ქართულად):', { reply_markup: { force_reply: true } });
     });
     
-    // ... დანარჩენი კოდი უცვლელია ...
     adminBot.on('message', async (msg) => {
         const commandText = ['პროდუქტების ნახვა', 'პროდუქტის დამატება'];
         if (!msg.text || msg.text.startsWith('/') || commandText.includes(msg.text)) return;
@@ -249,7 +238,7 @@ if (ADMIN_BOT_TOKEN) {
 app.get('/api/products', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM products ORDER BY id ASC');
-        const products = result.rows.map(formatProductFromDb); // ეს ფუნქცია ახლა ხელმისაწვდომია
+        const products = result.rows.map(formatProductFromDb);
         res.json(products);
     } catch (err) {
         console.error('API /api/products error:', err);
