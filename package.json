@@ -1,3 +1,4 @@
+// package.json (განახლებული)
 {
   "name": "luxury-fashion-store",
   "version": "1.0.0",
@@ -13,7 +14,8 @@
     "body-parser": "^1.20.2",
     "node-telegram-bot-api": "^0.64.0",
     "axios": "^1.6.2",
-    "form-data": "^4.0.0"
+    "form-data": "^4.0.0",
+    "pg": "^8.11.5"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
