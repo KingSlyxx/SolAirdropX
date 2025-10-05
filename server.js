@@ -1,4 +1,4 @@
-// server.js (სრული რედაქტირების ფუნქციონალით)
+// server.js (ფოტოების თანმიმდევრობის და Order ID-ის შესწორებით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -258,8 +258,8 @@ if (ADMIN_BOT_TOKEN) {
                 const imageUrl = uploadResponse.data.data.url;
 
                 if (state.step === 'awaiting_new_images') {
-                    await pool.query('UPDATE products SET image_urls = array_append(image_urls, $1) WHERE id = $2', [imageUrl, state.productId]);
-                    await adminBot.sendMessage(msg.chat.id, `ფოტო დაემატა პროდუქტს (ID: ${state.productId}). შეგიძლიათ გამოაგზავნოთ შემდეგი.`);
+                    await pool.query('UPDATE products SET image_urls = array_prepend($1, image_urls) WHERE id = $2', [imageUrl, state.productId]);
+                    await adminBot.sendMessage(msg.chat.id, `ფოტო დაემატა სიის დასაწყისში (ID: ${state.productId}). შეგიძლიათ გამოაგზავნოთ შემდეგი.`);
                     return;
                 }
 
@@ -395,7 +395,7 @@ const generateTestData = () => {
         }
 
         orders.push({
-            orderId: `TEST${1000 + i}`,
+            orderId: `LXRY-${Math.floor(10000000 + Math.random() * 90000000)}`,
             items: orderItems,
             customer: customer,
             totalPrice: orderTotal,
@@ -404,7 +404,7 @@ const generateTestData = () => {
     }
     
     const desiredTotal = Math.floor(Math.random() * (65000 - 20000 + 1)) + 20000;
-    const correctionFactor = desiredTotal / totalRevenue;
+    const correctionFactor = totalRevenue > 0 ? desiredTotal / totalRevenue : 0;
 
     orders.forEach(order => {
         order.totalPrice = parseFloat((order.totalPrice * correctionFactor).toFixed(2));
