@@ -1,4 +1,4 @@
-// server.js (საბოლოო ვერსია, რედაქტირების და ადმინ-პანელის დროებითი მონაცემების ლოგიკით)
+// server.js (საბოლოო ვერსია, რედაქტირების დამატებული ლოგიკით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -59,15 +59,6 @@ const initializeDatabase = async () => {
             );
         `);
         console.log('Orders table is ready.');
-         await client.query(`
-            CREATE TABLE IF NOT EXISTS chat_sessions (
-                session_id VARCHAR(255) PRIMARY KEY,
-                user_data JSONB,
-                admin_chat_id BIGINT,
-                last_message TIMESTAMPTZ DEFAULT NOW()
-            );
-        `);
-        console.log('Chat sessions table is ready.');
         client.release();
     } catch (err) {
         console.error('Failed to initialize database:', err);
@@ -80,7 +71,6 @@ app.use(express.static('public'));
 app.use(bodyParser.json());
 
 const userState = {};
-const liveChatSessions = {}; // Store chat session data in memory
 
 const formatProductFromDb = (dbRow) => ({
     id: dbRow.id,
@@ -103,6 +93,7 @@ if (ADMIN_BOT_TOKEN) {
     const mainMenuKeyboard = { keyboard: [[{ text: 'პროდუქტების ნახვა' }], [{ text: 'პროდუქტის დამატება' }]], resize_keyboard: true };
     const resetState = (chatId) => delete userState[chatId];
     
+    // --- [დამატებულია] რედაქტირების მენიუს გენერატორი ---
     const createEditKeyboard = (productId) => ({
         inline_keyboard: [
             [{ text: 'სახელი (GE)', callback_data: `edit_name_ge_${productId}` }, { text: 'სახელი (EN)', callback_data: `edit_name_en_${productId}` }],
@@ -158,6 +149,7 @@ if (ADMIN_BOT_TOKEN) {
         }
     });
     
+    // --- [განახლებული კოდი] --- ღილაკებზე დაჭერის დამუშავება (რედაქტირების ლოგიკით) ---
     adminBot.on('callback_query', async (callbackQuery) => {
         const msg = callbackQuery.message;
         const data = callbackQuery.data;
@@ -184,6 +176,8 @@ if (ADMIN_BOT_TOKEN) {
                 const f = formatProductFromDb(result.rows[0]);
                 const caption = `ID: ${f.id}\nსახელი: ${f.name.ge}\nფასი: ₾${f.price}\n\nაირჩიეთ ველი რედაქტირებისთვის:`;
                 const editKeyboard = createEditKeyboard(productId);
+
+                // Edit the existing message to show the new menu
                 await adminBot.editMessageCaption(caption, {
                     chat_id: chatId,
                     message_id: msg.message_id,
@@ -193,15 +187,15 @@ if (ADMIN_BOT_TOKEN) {
             }
 
             if (action === 'edit' && params.length > 1) { // Handles "edit_{field}_{id}"
-                const [field, productId] = [params[0], params[params.length-1]];
+                const [field, productId] = [params[0], params[params.length-1]]; // handles fields with underscores
                 const fullFieldName = params.slice(0, -1).join('_');
 
                 const prompt = fieldPrompts[fullFieldName];
                 if (!prompt) return;
 
-                if (fullFieldName.includes('image_urls')) {
+                if (fullFieldName.includes('image_urls')) { // Image editing logic
                     userState[chatId] = { step: 'awaiting_edit_images', field: fullFieldName, productId: productId, newUrls: [] };
-                } else {
+                } else { // Text field editing logic
                     userState[chatId] = { step: 'awaiting_edit_input', field: fullFieldName, productId: productId };
                 }
 
@@ -237,8 +231,10 @@ if (ADMIN_BOT_TOKEN) {
         const chatId = msg.chat.id;
 
         try {
+            // --- [დამატებულია] რედაქტირების ლოგიკა ---
             if (state.step === 'awaiting_edit_input') {
                 let value = msg.text;
+                // Data type conversion
                 if (['price', 'old_price'].includes(state.field)) {
                     value = parseFloat(value);
                     if (state.field === 'old_price' && value <= 0) value = null;
@@ -246,12 +242,14 @@ if (ADMIN_BOT_TOKEN) {
                 if (state.field === 'sizes') {
                     value = msg.text.split(',').map(s => s.trim().toUpperCase());
                 }
+
                 await pool.query(`UPDATE products SET ${state.field} = $1 WHERE id = $2`, [value, state.productId]);
                 adminBot.sendMessage(chatId, `✅ ველი წარმატებით განახლდა.`);
                 resetState(chatId);
                 return;
             }
 
+            // --- [დამატებულია] სურათების რედაქტირების დასრულება ---
             if (state.step === 'awaiting_edit_images' && msg.text.toLowerCase() === 'done') {
                  if (!state.newUrls || state.newUrls.length === 0) {
                     return adminBot.sendMessage(chatId, "გთხოვთ, მინიმუმ ერთი ახალი ფოტო ატვირთოთ ან დაწერეთ 'cancel'.");
@@ -262,25 +260,84 @@ if (ADMIN_BOT_TOKEN) {
                 return;
             }
 
+            // --- პროდუქტის დამატების ლოგიკა ---
             switch (state.step) {
-                 case 'awaiting_name_ge': state.product.name_ge = msg.text; state.step = 'awaiting_name_en'; adminBot.sendMessage(chatId, 'შეიყვანეთ პროდუქტის სახელი (ინგლისურად):', { reply_markup: { force_reply: true } }); break;
-                case 'awaiting_name_en': state.product.name_en = msg.text; state.step = 'awaiting_price'; adminBot.sendMessage(chatId, 'შეიყვანეთ ფასი (მაგ: 129.99):', { reply_markup: { force_reply: true } }); break;
-                case 'awaiting_price': state.product.price = parseFloat(msg.text); state.step = 'awaiting_old_price'; adminBot.sendMessage(chatId, 'შეიყვანეთ ძველი ფასი (თუ არ აქვს, დაწერეთ 0):', { reply_markup: { force_reply: true } }); break;
-                case 'awaiting_old_price': state.product.old_price = parseFloat(msg.text) > 0 ? parseFloat(msg.text) : null; state.step = 'awaiting_description_ge'; adminBot.sendMessage(chatId, 'შეიყვანეთ პროდუქტის აღწერა (ქართულად):', { reply_markup: { force_reply: true } }); break;
-                case 'awaiting_description_ge': state.product.description_ge = msg.text; state.step = 'awaiting_description_en'; adminBot.sendMessage(chatId, 'შეიყვანეთ პროდუქტის აღწერა (ინგლისურად):', { reply_markup: { force_reply: true } }); break;
-                case 'awaiting_description_en': state.product.description_en = msg.text; state.step = 'awaiting_category'; adminBot.sendMessage(chatId, 'შეიყვანეთ კატეგორია (მაგ: dresses, shirts):', { reply_markup: { force_reply: true } }); break;
-                case 'awaiting_category': state.product.category = msg.text.toLowerCase(); state.step = 'awaiting_gender'; adminBot.sendMessage(chatId, 'მიუთითეთ სქესი (women ან men):', { reply_markup: { force_reply: true } }); break;
-                case 'awaiting_gender': state.product.gender = msg.text.toLowerCase(); state.step = 'awaiting_sizes'; adminBot.sendMessage(chatId, 'შეიყვანეთ ზომები მძიმით გამოყოფით (მაგ: S,M,L):', { reply_markup: { force_reply: true } }); break;
-                case 'awaiting_sizes': state.product.sizes = msg.text.split(',').map(s => s.trim().toUpperCase()); state.step = 'awaiting_images'; adminBot.sendMessage(chatId, "ატვირთეთ პროდუქტის ძირითადი ფოტო(ები). დასრულების შემდეგ, დაწერეთ 'done'."); break;
-                case 'awaiting_images': if (msg.text.toLowerCase() === 'done') { if (!state.product.imageUrls || state.product.imageUrls.length === 0) return adminBot.sendMessage(chatId, "გთხოვთ, მინიმუმ ერთი ფოტო ატვირთოთ."); state.step = 'awaiting_qc_images'; adminBot.sendMessage(chatId, "ახლა ატვირთეთ 'ხარისხის შემოწმების' ფოტო(ები). დასრულების შემდეგ, დაწერეთ 'done'."); } break;
-                 case 'awaiting_qc_images': if (msg.text.toLowerCase() === 'done') { const p = state.product; const query = `INSERT INTO products (name_ge, name_en, price, old_price, description_ge, description_en, category, gender, sizes, image_urls, qc_image_urls) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id;`; const values = [p.name_ge, p.name_en, p.price, p.old_price, p.description_ge, p.description_en, p.category, p.gender, p.sizes, p.imageUrls, p.qcImageUrls || []]; const result = await pool.query(query, values); adminBot.sendMessage(chatId, `პროდუქტი (ID: ${result.rows[0].id}) წარმატებით დაემატა.`, { reply_markup: mainMenuKeyboard }); resetState(chatId); } break;
+                 case 'awaiting_name_ge':
+                    state.product.name_ge = msg.text;
+                    state.step = 'awaiting_name_en';
+                    adminBot.sendMessage(chatId, 'შეიყვანეთ პროდუქტის სახელი (ინგლისურად):', { reply_markup: { force_reply: true } });
+                    break;
+                case 'awaiting_name_en':
+                    state.product.name_en = msg.text;
+                    state.step = 'awaiting_price';
+                    adminBot.sendMessage(chatId, 'შეიყვანეთ ფასი (მაგ: 129.99):', { reply_markup: { force_reply: true } });
+                    break;
+                case 'awaiting_price':
+                    state.product.price = parseFloat(msg.text);
+                    state.step = 'awaiting_old_price';
+                    adminBot.sendMessage(chatId, 'შეიყვანეთ ძველი ფასი (თუ არ აქვს, დაწერეთ 0):', { reply_markup: { force_reply: true } });
+                    break;
+                case 'awaiting_old_price':
+                    state.product.old_price = parseFloat(msg.text) > 0 ? parseFloat(msg.text) : null;
+                    state.step = 'awaiting_description_ge';
+                    adminBot.sendMessage(chatId, 'შეიყვანეთ პროდუქტის აღწერა (ქართულად):', { reply_markup: { force_reply: true } });
+                    break;
+                case 'awaiting_description_ge':
+                    state.product.description_ge = msg.text;
+                    state.step = 'awaiting_description_en';
+                    adminBot.sendMessage(chatId, 'შეიყვანეთ პროდუქტის აღწერა (ინგლისურად):', { reply_markup: { force_reply: true } });
+                    break;
+                case 'awaiting_description_en':
+                    state.product.description_en = msg.text;
+                    state.step = 'awaiting_category';
+                    adminBot.sendMessage(chatId, 'შეიყვანეთ კატეგორია (მაგ: dresses, shirts):', { reply_markup: { force_reply: true } });
+                    break;
+                case 'awaiting_category':
+                    state.product.category = msg.text.toLowerCase();
+                    state.step = 'awaiting_gender';
+                    adminBot.sendMessage(chatId, 'მიუთითეთ სქესი (women ან men):', { reply_markup: { force_reply: true } });
+                    break;
+                case 'awaiting_gender':
+                    state.product.gender = msg.text.toLowerCase();
+                    state.step = 'awaiting_sizes';
+                    adminBot.sendMessage(chatId, 'შეიყვანეთ ზომები მძიმით გამოყოფით (მაგ: S,M,L):', { reply_markup: { force_reply: true } });
+                    break;
+                case 'awaiting_sizes':
+                    state.product.sizes = msg.text.split(',').map(s => s.trim().toUpperCase());
+                    state.step = 'awaiting_images';
+                    adminBot.sendMessage(chatId, "ატვირთეთ პროდუქტის ძირითადი ფოტო(ები). დასრულების შემდეგ, დაწერეთ 'done'.");
+                    break;
+                case 'awaiting_images':
+                    if (msg.text.toLowerCase() === 'done') {
+                        if (!state.product.imageUrls || state.product.imageUrls.length === 0) return adminBot.sendMessage(chatId, "გთხოვთ, მინიმუმ ერთი ფოტო ატვირთოთ.");
+                        state.step = 'awaiting_qc_images';
+                        adminBot.sendMessage(chatId, "ახლა ატვირთეთ 'ხარისხის შემოწმების' ფოტო(ები). დასრულების შემდეგ, დაწერეთ 'done'.");
+                    }
+                    break;
+                 case 'awaiting_qc_images':
+                    if (msg.text.toLowerCase() === 'done') {
+                        const p = state.product;
+                        const query = `
+                            INSERT INTO products (name_ge, name_en, price, old_price, description_ge, description_en, category, gender, sizes, image_urls, qc_image_urls)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id;`;
+                        const values = [p.name_ge, p.name_en, p.price, p.old_price, p.description_ge, p.description_en, p.category, p.gender, p.sizes, p.imageUrls, p.qcImageUrls || []];
+                        const result = await pool.query(query, values);
+                        adminBot.sendMessage(chatId, `პროდუქტი (ID: ${result.rows[0].id}) წარმატებით დაემატა.`, { reply_markup: mainMenuKeyboard });
+                        resetState(chatId);
+                    }
+                    break;
             }
-        } catch (e) { adminBot.sendMessage(chatId, `დაფიქსირდა შეცდომა: ${e.message}\nსცადეთ თავიდან.`); resetState(chatId); }
+        } catch (e) {
+            adminBot.sendMessage(chatId, `დაფიქსირდა შეცდომა: ${e.message}\nსცადეთ თავიდან.`);
+            resetState(chatId);
+        }
     });
 
+    // --- [განახლებული] ფოტოების მიღების ლოგიკა ---
     adminBot.on('photo', async (msg) => {
         const chatId = msg.chat.id;
         const state = userState[chatId];
+        // Now handles both new product image upload and editing existing product images
         if (!state || !['awaiting_images', 'awaiting_qc_images', 'awaiting_edit_images'].includes(state.step)) return;
         if (!IMGBB_API_KEY) return adminBot.sendMessage(chatId, 'imgbb.com API გასაღები არ არის მითითებული სერვერზე.');
         
@@ -288,63 +345,34 @@ if (ADMIN_BOT_TOKEN) {
             const fileId = msg.photo[msg.photo.length - 1].file_id;
             const fileLink = await adminBot.getFileLink(fileId);
             const imageResponse = await axios.get(fileLink, { responseType: 'arraybuffer' });
+            
             const form = new FormData();
             form.append('image', imageResponse.data, { filename: 'telegram_photo.jpg' });
+            
             const uploadResponse = await axios.post(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, form, { headers: form.getHeaders() });
             
             if (uploadResponse.data.success) {
                 const imageUrl = uploadResponse.data.data.url;
-                if (state.step === 'awaiting_edit_images') { state.newUrls.push(imageUrl); } 
-                else { const targetArray = state.step === 'awaiting_images' ? 'imageUrls' : 'qcImageUrls'; if (!state.product[targetArray]) state.product[targetArray] = []; state.product[targetArray].push(imageUrl); }
+
+                // Determine where to push the new URL based on the current state
+                if (state.step === 'awaiting_edit_images') {
+                    state.newUrls.push(imageUrl);
+                } else {
+                    const targetArray = state.step === 'awaiting_images' ? 'imageUrls' : 'qcImageUrls';
+                    if (!state.product[targetArray]) state.product[targetArray] = [];
+                    state.product[targetArray].push(imageUrl);
+                }
+                
                 adminBot.sendMessage(chatId, `ფოტო აიტვირთა. გამოაგზავნეთ შემდეგი ან დაწერეთ 'done'.`);
-            } else { throw new Error(uploadResponse.data.error.message); }
-        } catch (e) { console.error('Image upload failed:', e); adminBot.sendMessage(chatId, `ფოტოს ატვირთვა ვერ მოხერხდა: ${e.message}`); }
+            } else { 
+                throw new Error(uploadResponse.data.error.message); 
+            }
+        } catch (e) {
+            console.error('Image upload failed:', e);
+            adminBot.sendMessage(chatId, `ფოტოს ატვირთვა ვერ მოხერხდა: ${e.message}`);
+        }
     });
 }
-// --- [დამატებულია] ადმინ პანელის დროებითი მონაცემების API ---
-app.get('/api/admin/sales-data', (req, res) => {
-    // ეს არის დროებითი, რეალისტური მონაცემები
-    const mockSalesData = [
-        {
-            orderId: "LXRY-95142",
-            customer: { firstName: "Lasha", lastName: "Bregvadze", phone: "+995555123456", country: "Georgia" },
-            items: [{ name: { ge: "LV SKATE SNEAKER" } }, { name: { ge: "LV DISCOVERY BACKPACK" } }],
-            totalPrice: 1350.00,
-            date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000) // 1 day ago
-        },
-        {
-            orderId: "LXRY-88371",
-            customer: { firstName: "John", lastName: "Smith", phone: "+12025550181", country: "USA" },
-            items: [{ name: { ge: "DIOR OBLIQUE DOWN JACKET" } }],
-            totalPrice: 500.00,
-            date: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) // 3 days ago
-        },
-        {
-            orderId: "LXRY-84033",
-            customer: { firstName: "Mariam", lastName: "Gagnidze", phone: "+995599876543", country: "Georgia" },
-            items: [{ name: { ge: "LV ONTHEGO MM" } }],
-            totalPrice: 650.00,
-            date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000) // 5 days ago
-        },
-        {
-            orderId: "LXRY-71952",
-            customer: { firstName: "Hans", lastName: "Müller", phone: "+4917612345678", country: "Europe" },
-            items: [{ name: { ge: "GG COTTON PIQUET POLO" } }, { name: { ge: "GG BLACK SMALL BELT BAG" } }],
-            totalPrice: 510.00,
-            date: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000) // 10 days ago
-        }
-    ];
-
-    const totalRevenue = mockSalesData.reduce((sum, sale) => sum + sale.totalPrice, 0);
-    const totalSales = mockSalesData.length;
-
-    res.json({
-        totalRevenue: totalRevenue.toFixed(2),
-        totalSales: totalSales,
-        recentSales: mockSalesData
-    });
-});
-
 
 app.get('/api/products', async (req, res) => {
     try {
@@ -356,105 +384,6 @@ app.get('/api/products', async (req, res) => {
         res.status(500).json({ success: false, message: 'Could not fetch products' });
     }
 });
-
-// --- [დამატებულია] სხვა საჭირო API ენდფოინთები ---
-
-function generateOrderId() {
-    return `LXRY-${Math.floor(10000 + Math.random() * 90000)}`;
-}
-
-app.post('/api/submit-order', async (req, res) => {
-    const { customer, items, totalPrice } = req.body;
-    if (!customer || !items || !totalPrice) {
-        return res.status(400).json({ success: false, message: 'Missing order data' });
-    }
-
-    const orderId = generateOrderId();
-    const status = 'მიღებულია';
-
-    try {
-        await pool.query(
-            'INSERT INTO orders (order_id, customer_data, items, total_price, status) VALUES ($1, $2, $3, $4, $5)',
-            [orderId, customer, items, totalPrice, status]
-        );
-
-        // შეტყობინების გაგზავნა ადმინთან ტელეგრამში
-        if (adminBot && TELEGRAM_CHANNEL_ID) {
-            const itemsText = items.map(item => `- ${item.name.ge} (ზომა: ${item.size}) - ₾${item.price}`).join('\n');
-            const messageText = `
-📦 **ახალი შეკვეთა!**
-**ID:** \`${orderId}\`
-**მომხმარებელი:** ${customer.firstName} ${customer.lastName}
-**ტელეფონი:** \`${customer.phone}\`
-**მისამართი:** ${customer.address}, ${customer.city}
-**პროდუქტები:**
-${itemsText}
-**სულ:** **₾${totalPrice}**
-            `;
-            await adminBot.sendMessage(TELEGRAM_CHANNEL_ID, messageText, { parse_mode: 'Markdown' });
-        }
-
-        res.json({ success: true, orderId: orderId });
-    } catch (err) {
-        console.error('API /api/submit-order error:', err);
-        res.status(500).json({ success: false, message: 'Failed to save order' });
-    }
-});
-
-app.get('/api/order-status/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const result = await pool.query('SELECT status FROM orders WHERE order_id = $1', [id]);
-        if (result.rows.length > 0) {
-            res.json({ success: true, status: result.rows[0].status });
-        } else {
-            res.status(404).json({ success: false, message: 'Order not found' });
-        }
-    } catch (err) {
-        console.error('API /api/order-status/:id error:', err);
-        res.status(500).json({ success: false, message: 'Server error' });
-    }
-});
-
-app.post('/api/live-chat', (req, res) => {
-    const { sessionId, message, isNewChat, userData } = req.body;
-    if (isNewChat) {
-        liveChatSessions[sessionId] = { messages: [], user: userData };
-        const introMessage = `
-💬 **ახალი ჩატი დაიწყო**
-**სესია ID:** \`${sessionId}\`
-**მომხმარებელი:** ${userData.name} (${userData.email})
-**შეკვეთის ID:** ${userData.orderId || 'არ არის მითითებული'}
-        `;
-        if (adminBot && TELEGRAM_CHANNEL_ID) {
-            adminBot.sendMessage(TELEGRAM_CHANNEL_ID, introMessage, { parse_mode: 'Markdown' });
-        }
-    }
-    
-    liveChatSessions[sessionId].messages.push({ sender: 'user', text: message });
-    const userMessage = `
-🗣️ **მომხმარებლის შეტყობინება (სესია \`${sessionId}\`):**
-${message}
-    `;
-    if (adminBot && TELEGRAM_CHANNEL_ID && !isNewChat) {
-        adminBot.sendMessage(TELEGRAM_CHANNEL_ID, userMessage, { parse_mode: 'Markdown' });
-    }
-    res.json({ success: true });
-});
-
-app.get('/api/chat-response/:sessionId', (req, res) => {
-    const { sessionId } = req.params;
-    const session = liveChatSessions[sessionId];
-    if (session && session.messages.length > 0) {
-        const lastMessage = session.messages[session.messages.length - 1];
-        if (lastMessage.sender === 'operator') {
-            session.messages.pop(); // Remove the message after sending it
-            return res.json({ success: true, message: lastMessage.text });
-        }
-    }
-    res.json({ success: false });
-});
-
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
