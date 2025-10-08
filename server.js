@@ -12,11 +12,10 @@ const { Pool } = require('pg');
 const app = express();
 const port = process.env.PORT || 8080;
 
-// --- გარემოს ცვლადები ---
-const ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN;
-const LIVE_CHAT_BOT_TOKEN = process.env.LIVE_CHAT_BOT_TOKEN; // ეს ბოტი გამოიყენება ლაივ ჩატისთვის
+// --- გარემოს ცვლადები (განახლებულია თქვენი მონაცემებით) ---
+const ADMIN_BOT_TOKEN = '8151755873:AAEBrslgbP49Q3FiTSKAm7fyQchNbUMVSe0'; // თქვენი Admin ბოტის ტოკენი
 const TELEGRAM_CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID; // ეს არხი რჩება შეკვეთების და ვიზიტორების ნოტიფიკაციისთვის
-const TELEGRAM_GROUP_ID = process.env.TELEGRAM_GROUP_ID; // [მნიშვნელოვანია] ეს არის ჯგუფის ID ლაივ ჩატისთვის
+const TELEGRAM_GROUP_ID = '-4644402426'; // [მნიშვნელოვანია] ეს არის ჯგუფის ID ლაივ ჩატისთვის
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
 const DATABASE_URL = process.env.DATABASE_URL;
 
@@ -88,11 +87,11 @@ const formatProductFromDb = (dbRow) => ({
     qcImageUrls: dbRow.qc_image_urls || [],
 });
 
-// ===== ADMIN BOT FOR PRODUCT MANAGEMENT =====
+// ===== ADMIN BOT FOR PRODUCT MANAGEMENT & LIVE CHAT =====
 let adminBot;
 if (ADMIN_BOT_TOKEN) {
     adminBot = new TelegramBot(ADMIN_BOT_TOKEN, { polling: true });
-    console.log('Admin Bot for product management is running...');
+    console.log('Admin Bot for product management and Live Chat is running...');
     
     const mainMenuKeyboard = { keyboard: [[{ text: 'პროდუქტების ნახვა' }], [{ text: 'პროდუქტის დამატება' }]], resize_keyboard: true };
     const resetState = (chatId) => delete userState[chatId];
@@ -209,11 +208,31 @@ if (ADMIN_BOT_TOKEN) {
     });
     
     adminBot.on('message', async (msg) => {
+        // [NEW] Live Chat Reply Logic
+        if (msg.reply_to_message && msg.reply_to_message.from.is_bot) {
+            const originalMessage = msg.reply_to_message.text;
+            if (originalMessage) {
+                const sessionIdMatch = originalMessage.match(/\[Session ID: (\w+)\]/);
+                if (sessionIdMatch && sessionIdMatch[1]) {
+                    const sessionId = sessionIdMatch[1];
+                    const session = chatSessions.get(sessionId);
+                    if (session && msg.text) {
+                        session.pendingMessages.push(msg.text);
+                        chatSessions.set(sessionId, session);
+                    }
+                    return; // Stop processing to avoid falling into product management logic
+                }
+            }
+        }
+
+        // [EXISTING] Product Management Logic
         if (!msg.text || msg.text.startsWith('/')) return;
         const commandText = ['პროდუქტების ნახვა', 'პროდუქტის დამატება'];
         if (commandText.includes(msg.text) && !msg.reply_to_message) return;
+        
         const state = userState[msg.chat.id];
-        if (!state) return;
+        if (!state) return; // This will now correctly ignore non-product related messages
+        
         const chatId = msg.chat.id;
         try {
             if (state.step === 'awaiting_edit_input') {
@@ -281,36 +300,6 @@ if (ADMIN_BOT_TOKEN) {
     });
 }
 
-// ===== LIVE CHAT BOT FOR GROUP =====
-let liveChatBot;
-if (LIVE_CHAT_BOT_TOKEN && TELEGRAM_GROUP_ID) {
-    liveChatBot = new TelegramBot(LIVE_CHAT_BOT_TOKEN, { polling: true });
-    console.log('Live Chat Bot is running and connected to Group ID.');
-
-    liveChatBot.on('message', (msg) => {
-        // ვამოწმებთ, არის თუ არა ეს მესიჯი პასუხი (reply) ბოტის მიერ გამოგზავნილ შეტყობინებაზე
-        if (msg.reply_to_message && msg.reply_to_message.from.is_bot) {
-            const originalMessage = msg.reply_to_message.text;
-            
-            // ვიღებთ sessionId-ს ორიგინალი შეტყობინებიდან
-            const sessionIdMatch = originalMessage.match(/\[Session ID: (\w+)\]/);
-            if (sessionIdMatch && sessionIdMatch[1]) {
-                const sessionId = sessionIdMatch[1];
-                
-                // ვპოულობთ შესაბამის ჩატის სესიას
-                const session = chatSessions.get(sessionId);
-                if (session && msg.text) {
-                    // ადმინის პასუხს ვამატებთ მომხმარებლისთვის გასაგზავნი შეტყობინებების რიგში
-                    session.pendingMessages.push(msg.text);
-                    chatSessions.set(sessionId, session);
-                }
-            }
-        }
-    });
-} else {
-    console.warn('LIVE_CHAT_BOT_TOKEN or TELEGRAM_GROUP_ID is not set. Live Chat will not function.');
-}
-
 // API Endpoint-ი საიტიდან ახალი ჩატის დასაწყებად
 app.post('/api/live-chat', (req, res) => {
     const { sessionId, isNewChat, userData, message } = req.body;
@@ -321,7 +310,7 @@ app.post('/api/live-chat', (req, res) => {
     if (isNewChat) {
         // ახალი ჩატის დაწყება
         chatSessions.set(sessionId, { userData, pendingMessages: [] });
-        if (liveChatBot && TELEGRAM_GROUP_ID) {
+        if (adminBot && TELEGRAM_GROUP_ID) {
             const notification = `
 🔔 *ახალი ჩატი დაიწყო*
 👤 *მომხმარებელი:* ${userData.name}
@@ -330,13 +319,13 @@ ${userData.orderId ? `🔢 *შეკვეთის N:* ${userData.orderId}` : 
 ---
 [Session ID: ${sessionId}]
             `;
-            liveChatBot.sendMessage(TELEGRAM_GROUP_ID, notification, { parse_mode: 'Markdown' })
+            adminBot.sendMessage(TELEGRAM_GROUP_ID, notification, { parse_mode: 'Markdown' })
                 .catch(err => console.error("Failed to send new chat notification to group:", err.message));
         }
     } else {
         // მომხმარებლისგან მოსული ახალი მესიჯი
         const session = chatSessions.get(sessionId);
-        if (session && liveChatBot && TELEGRAM_GROUP_ID) {
+        if (session && adminBot && TELEGRAM_GROUP_ID) {
             const userMessage = `
 💬 *მომხმარებლის შეტყობინება*
 *${session.userData.name}:* ${message}
@@ -344,7 +333,7 @@ ${userData.orderId ? `🔢 *შეკვეთის N:* ${userData.orderId}` : 
 [Session ID: ${sessionId}]
             `;
             // პასუხის გასაცემად, გამოიყენეთ "Reply" ამ შეტყობინებაზე.
-            liveChatBot.sendMessage(TELEGRAM_GROUP_ID, userMessage, { parse_mode: 'Markdown' })
+            adminBot.sendMessage(TELEGRAM_GROUP_ID, userMessage, { parse_mode: 'Markdown' })
                 .catch(err => console.error("Failed to forward user message to group:", err.message));
         }
     }
