@@ -1,4 +1,4 @@
-// server.js (სრული ვერსია)
+// server.js (განახლებული ვერსია BOG გადახდის ლოგიკით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -8,16 +8,26 @@ const path = require('path');
 const axios = require('axios');
 const FormData = require('form-data');
 const { Pool } = require('pg');
+// uuid-ის გამოყენება დაგვჭირდება უნიკალური გარე შეკვეთის ID-სთვის
+const { v4: uuidv4 } = require('uuid'); 
 
 const app = express();
 const port = process.env.PORT || 8080;
 
-// --- გარემოს ცვლადები (განახლებულია თქვენი მონაცემებით) ---
+// --- გარემოს ცვლადები (განახლებულია BOG-ის მონაცემებით) ---
 const ADMIN_BOT_TOKEN = '8151755873:AAEBrslgbP49Q3FiTSKAm7fyQchNbUMVSe0'; // თქვენი Admin ბოტის ტოკენი
-const TELEGRAM_CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID; // ეს არხი რჩება შეკვეთების და ვიზიტორების ნოტიფიკაციისთვის
-const TELEGRAM_GROUP_ID = '-4644402426'; // [მნიშვნელოვანია] ეს არის ჯგუფის ID ლაივ ჩატისთვის
+const TELEGRAM_CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID; 
+const TELEGRAM_GROUP_ID = '-4644402426'; 
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
 const DATABASE_URL = process.env.DATABASE_URL;
+// BOG-ის ახალი ცვლადები
+const BOG_CLIENT_ID = process.env.BOG_CLIENT_ID; // <--- დაამატეთ თქვენი Client ID
+const BOG_CLIENT_SECRET = process.env.BOG_CLIENT_SECRET; // <--- დაამატეთ თქვენი Client Secret
+const BOG_CALLBACK_URL = process.env.BOG_CALLBACK_URL || 'https://your-website.com/api/payment-callback';
+const BOG_FAIL_URL = process.env.BOG_FAIL_URL || 'https://your-website.com/payment-failed';
+const BOG_SUCCESS_URL = process.env.BOG_SUCCESS_URL || 'https://your-website.com/payment-success';
+const BOG_API_BASE = 'https://api.bog.ge';
+const BOG_AUTH_URL = 'https://oauth2.bog.ge/auth/realms/bog/protocol/openid-connect/token';
 
 // --- PostgreSQL ბაზასთან კავშირის დამყარება ---
 const pool = new Pool({
@@ -27,6 +37,7 @@ const pool = new Pool({
   },
 });
 
+// ... (initializeDatabase ფუნქცია უცვლელია) ...
 const initializeDatabase = async () => {
     try {
         const client = await pool.connect();
@@ -55,7 +66,9 @@ const initializeDatabase = async () => {
                 items JSONB,
                 total_price NUMERIC(10, 2),
                 status VARCHAR(50) DEFAULT 'მიღებულია',
-                created_at TIMESTAMPTZ DEFAULT NOW()
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                bog_order_id VARCHAR(255) UNIQUE,  // BOG-ის შეკვეთის ID
+                payment_status VARCHAR(50) DEFAULT 'ელოდება' // გადახდის სტატუსი
             );
         `);
         console.log('Orders table is ready.');
@@ -65,6 +78,7 @@ const initializeDatabase = async () => {
         process.exit(1);
     }
 };
+// ... (აპის დაყენებები: app.use, userState, chatSessions, formatProductFromDb უცვლელია) ...
 
 app.use(cors());
 app.use(express.static('public'));
@@ -72,7 +86,7 @@ app.use(bodyParser.json());
 app.set('trust proxy', true);
 
 const userState = {};
-const chatSessions = new Map(); // აქტიური ჩატების სესია
+const chatSessions = new Map();
 
 const formatProductFromDb = (dbRow) => ({
     id: dbRow.id,
@@ -87,9 +101,10 @@ const formatProductFromDb = (dbRow) => ({
     qcImageUrls: dbRow.qc_image_urls || [],
 });
 
-// ===== ADMIN BOT FOR PRODUCT MANAGEMENT & LIVE CHAT =====
+// ===== ADMIN BOT LOGIC (უცვლელია) =====
 let adminBot;
 if (ADMIN_BOT_TOKEN) {
+    // ... (Admin Bot-ის მთელი კოდი უცვლელია) ...
     adminBot = new TelegramBot(ADMIN_BOT_TOKEN, { polling: true });
     console.log('Admin Bot for product management and Live Chat is running...');
     
@@ -128,7 +143,6 @@ if (ADMIN_BOT_TOKEN) {
         adminBot.sendMessage(msg.chat.id, 'მოგესალმებით! აირჩიეთ მოქმედება:', { reply_markup: mainMenuKeyboard });
     });
 
-    // [განახლებულია] პროდუქტების ნახვის ბრძანება იწყებს კატეგორიის არჩევის პროცესს
     adminBot.onText(/პროდუქტების ნახვა/, (msg) => {
         const chatId = msg.chat.id;
         resetState(chatId);
@@ -148,9 +162,8 @@ if (ADMIN_BOT_TOKEN) {
         const chatId = msg.chat.id;
         const [action, ...params] = data.split('_');
         try {
-            // [ახალი ლოგიკა] სქესის მიხედვით პროდუქტების სიის ჩვენება
             if (action === 'view' && params[0] === 'gender') {
-                const gender = params[1]; // 'women', 'men', ან 'all'
+                const gender = params[1]; 
                 await adminBot.answerCallbackQuery(callbackQuery.id);
 
                 let result;
@@ -171,7 +184,7 @@ if (ADMIN_BOT_TOKEN) {
                 
                 await adminBot.deleteMessage(chatId, msg.message_id);
                 await adminBot.sendMessage(chatId, `**პროდუქტების სია:**\n\n${productList}\n\nშეიყვანეთ პროდუქტის ID მის სამართავად (მაგ: 5).`, { reply_markup: { force_reply: true } });
-                return; // ვასრულებთ აქ, რომ სხვა callback-ებმა არ იმუშაოს
+                return;
             }
 
             if (action === 'delete') {
@@ -192,7 +205,6 @@ if (ADMIN_BOT_TOKEN) {
                 const caption = `ID: ${f.id}\nსახელი: ${f.name.ge}\nფასი: ₾${f.price}\n\nაირჩიეთ ველი რედაქტირებისთვის:`;
                 const editKeyboard = createEditKeyboard(productId);
                 
-                // ვამოწმებთ, მესიჯს აქვს თუ არა ფოტო, რომ გამოვიყენოთ სწორი მეთოდი (editMessageCaption vs editMessageText)
                 if (msg.photo) {
                     await adminBot.editMessageCaption(caption, { chat_id: chatId, message_id: msg.message_id, reply_markup: editKeyboard });
                 } else {
@@ -216,7 +228,6 @@ if (ADMIN_BOT_TOKEN) {
             if (action === 'back' && params[0] === 'to' && params[1] === 'products') {
                 await adminBot.answerCallbackQuery(callbackQuery.id);
                 await adminBot.deleteMessage(chatId, msg.message_id);
-                // უკან დაბრუნებისას ვაჩვენებთ ისევ სქესის არჩევანს
                 adminBot.emit('message', { chat: { id: chatId }, text: 'პროდუქტების ნახვა' });
             }
         } catch (err) {
@@ -257,7 +268,6 @@ if (ADMIN_BOT_TOKEN) {
         
         const chatId = msg.chat.id;
         try {
-            // [ახალი ლოგიკა] პროდუქტის ID-ის შეყვანის მოლოდინი
             if (state.step === 'awaiting_product_id_for_manage') {
                 const productId = parseInt(msg.text, 10);
                 if (isNaN(productId)) {
@@ -272,14 +282,14 @@ if (ADMIN_BOT_TOKEN) {
                 const caption = `ID: ${f.id}\nსახელი: ${f.name.ge}\nფასი: ₾${f.price}${f.oldPrice ? ` (ძველი: ₾${f.oldPrice})` : ''}`;
                 const inlineKeyboard = { inline_keyboard: [[{ text: 'რედაქტირება', callback_data: `edit_${p.id}` }, { text: 'წაშლა', callback_data: `delete_${p.id}` }]] };
 
-                resetState(chatId); // ვასუფთავებთ მდგომარეობას
+                resetState(chatId); 
 
                 if (f.imageUrls && f.imageUrls.length > 0) {
                     await adminBot.sendPhoto(chatId, f.imageUrls[0], { caption, reply_markup: inlineKeyboard });
                 } else {
                     await adminBot.sendMessage(chatId, caption, { reply_markup: inlineKeyboard });
                 }
-                return; // ვასრულებთ, რომ დამატების ლოგიკაში არ გადავიდეს
+                return; 
             }
 
             if (state.step === 'awaiting_edit_input') {
@@ -346,6 +356,161 @@ if (ADMIN_BOT_TOKEN) {
         }
     });
 }
+// ===== BOG გადახდის ლოგიკა =====
+
+/**
+ * ნაბიჯი 1: იღებს OAuth2 ტოკენს BOG-ის ავტორიზაციის სერვერისგან.
+ * @returns {Promise<string>} Access Token.
+ */
+const getBogAccessToken = async () => {
+    if (!BOG_CLIENT_ID || !BOG_CLIENT_SECRET) {
+        throw new Error('BOG Client ID or Secret are not configured.');
+    }
+
+    const authString = Buffer.from(`${BOG_CLIENT_ID}:${BOG_CLIENT_SECRET}`).toString('base64');
+    
+    const data = new URLSearchParams();
+    data.append('grant_type', 'client_credentials');
+
+    const config = {
+        method: 'post',
+        url: BOG_AUTH_URL,
+        headers: { 
+            'Authorization': `Basic ${authString}`, 
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        data: data
+    };
+
+    const response = await axios(config);
+    return response.data.access_token;
+};
+
+/**
+ * ნაბიჯი 2 & 3: ქმნის შეკვეთას BOG-ის API-ის მეშვეობით და აბრუნებს გადამისამართების URL-ს.
+ * @param {object} orderData - შეკვეთის მონაცემები.
+ * @returns {Promise<string>} გადახდის redirect URL.
+ */
+app.post('/api/create-payment-order', async (req, res) => {
+    const { order_id, total_amount, items, customer_data } = req.body; // ეს მონაცემები მოვა თქვენი საიტიდან
+    
+    if (!order_id || !total_amount || !items || items.length === 0) {
+        return res.status(400).json({ success: false, message: 'Missing order details (order_id, total_amount, or items).' });
+    }
+
+    try {
+        // 1. ტოკენის მიღება
+        const accessToken = await getBogAccessToken();
+        
+        // 2. BOG-ის შეკვეთის მონაცემების მომზადება
+        // ჩვენი database order_id-ს ვიყენებთ external_order_id-ად
+        const externalOrderId = order_id; 
+
+        const bogOrderData = {
+            callback_url: BOG_CALLBACK_URL,
+            external_order_id: externalOrderId,
+            purchase_units: {
+                currency: 'GEL',
+                // BOG API ელოდება თანხას რიცხვად, ფიქსირებული ათობითი წერტილით.
+                total_amount: parseFloat(total_amount).toFixed(2), 
+                basket: items.map(item => ({
+                    quantity: item.quantity,
+                    unit_price: parseFloat(item.unit_price).toFixed(2),
+                    product_id: item.product_id,
+                    product_name: item.product_name,
+                }))
+            },
+            redirect_urls: {
+                fail: BOG_FAIL_URL,
+                // წარმატების გვერდზე შეგიძლიათ გაუგზავნოთ შეკვეთის ID
+                success: `${BOG_SUCCESS_URL}?order_id=${externalOrderId}` 
+            }
+        };
+
+        // 3. შეკვეთის შექმნა BOG-ის API-ში
+        const orderResponse = await axios.post(`${BOG_API_BASE}/payments/v1/ecommerce/orders`, bogOrderData, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Accept-Language': 'ka',
+                'Theme': 'light' // შეგიძლიათ შეცვალოთ dark/light
+            }
+        });
+
+        const paymentUrl = orderResponse.data?._links?.redirect?.href;
+        const bogOrderId = orderResponse.data?.id;
+
+        if (!paymentUrl || !bogOrderId) {
+            console.error('BOG Order creation response missing redirect URL or order ID:', orderResponse.data);
+            return res.status(500).json({ success: false, message: 'Could not create payment order with BOG API.' });
+        }
+        
+        // 4. შეკვეთის განახლება მონაცემთა ბაზაში (BOG-ის ID-ს შენახვა)
+        await pool.query(
+            'UPDATE orders SET bog_order_id = $1, payment_status = $2 WHERE order_id = $3',
+            [bogOrderId, 'გადახდის მოლოდინში', order_id]
+        );
+        
+        // 5. გადამისამართების URL-ის დაბრუნება კლიენტისთვის
+        res.json({ success: true, redirect_url: paymentUrl });
+
+    } catch (error) {
+        console.error('BOG Payment Creation Error:', error.response?.data || error.message);
+        res.status(500).json({ success: false, message: 'Payment processing failed.', error: error.response?.data || error.message });
+    }
+});
+
+/**
+ * BOG-ის გადახდის API-ის Callback ენდპოინტი
+ * BOG აგზავნის POST მოთხოვნას აქ, გადახდის დასრულების შემდეგ (წარმატებით/შეცდომით)
+ */
+app.post('/api/payment-callback', async (req, res) => {
+    const { id, external_order_id, status } = req.body;
+    console.log(`BOG Callback received for Order ID: ${external_order_id}, Status: ${status}`);
+
+    try {
+        // სტატუსის განახლება
+        let newPaymentStatus;
+        let newOrderStatus;
+
+        if (status === 'Succeeded') {
+            newPaymentStatus = 'გადახდილია';
+            newOrderStatus = 'გადახდილი/დამუშავების პროცესში'; 
+            // აქ შეგიძლიათ გაუგზავნოთ ნოტიფიკაცია ადმინ ბოტს
+        } else if (status === 'Failed' || status === 'Canceled') {
+            newPaymentStatus = status === 'Failed' ? 'ჩავარდნილია' : 'გაუქმებულია';
+            newOrderStatus = 'გადახდა ვერ მოხერხდა';
+        } else {
+            newPaymentStatus = status; // სხვა სტატუსები (მაგ: Pending, Expired)
+            newOrderStatus = 'მიღებულია';
+        }
+
+        await pool.query(
+            'UPDATE orders SET payment_status = $1, status = $2 WHERE order_id = $3',
+            [newPaymentStatus, newOrderStatus, external_order_id]
+        );
+
+        if (adminBot && TELEGRAM_CHANNEL_ID) {
+            const message = `💰 *შეკვეთის განახლება* 💰
+*შეკვეთის ID (თქვენი):* \`${external_order_id}\`
+*BOG ID:* \`${id}\`
+*გადახდის სტატუსი:* **${newPaymentStatus}**
+*შეკვეთის სტატუსი:* **${newOrderStatus}**
+            `;
+            await adminBot.sendMessage(TELEGRAM_CHANNEL_ID, message, { parse_mode: 'Markdown' });
+        }
+
+        // BOG API ელოდება 200 OK პასუხს
+        res.status(200).send('Callback received'); 
+
+    } catch (e) {
+        console.error('Error processing BOG callback:', e.message);
+        res.status(500).send('Error processing callback');
+    }
+});
+
+
+// ... (ყველა სხვა API ენდპოინტი: /api/live-chat, /api/chat-response/:sessionId, /api/products, /api/orders, /api/visitor, /api/cart/add უცვლელია) ...
 
 // API Endpoint-ი საიტიდან ახალი ჩატის დასაწყებად
 app.post('/api/live-chat', (req, res) => {
