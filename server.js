@@ -128,27 +128,18 @@ if (ADMIN_BOT_TOKEN) {
         adminBot.sendMessage(msg.chat.id, 'მოგესალმებით! აირჩიეთ მოქმედება:', { reply_markup: mainMenuKeyboard });
     });
 
-    adminBot.onText(/პროდუქტების ნახვა/, async (msg) => {
+    // [განახლებულია] პროდუქტების ნახვის ბრძანება იწყებს კატეგორიის არჩევის პროცესს
+    adminBot.onText(/პროდუქტების ნახვა/, (msg) => {
         const chatId = msg.chat.id;
-        try {
-            const result = await pool.query('SELECT * FROM products ORDER BY id ASC');
-            if (result.rows.length === 0) return adminBot.sendMessage(chatId, "პროდუქტები არ არის დამატებული.");
-            
-            await adminBot.sendMessage(chatId, "პროდუქტების სია:");
-            for (const p of result.rows) {
-                const f = formatProductFromDb(p);
-                const caption = `ID: ${f.id}\nსახელი: ${f.name.ge}\nფასი: ₾${f.price}${f.oldPrice ? ` (ძველი: ₾${f.oldPrice})` : ''}`;
-                const inlineKeyboard = { inline_keyboard: [[{ text: 'რედაქტირება', callback_data: `edit_${p.id}` }, { text: 'წაშლა', callback_data: `delete_${p.id}` }]] };
-                if (f.imageUrls && f.imageUrls.length > 0) {
-                    await adminBot.sendPhoto(chatId, f.imageUrls[0], { caption, reply_markup: inlineKeyboard });
-                } else {
-                    await adminBot.sendMessage(chatId, caption, { reply_markup: inlineKeyboard });
-                }
-            }
-        } catch (err) {
-            console.error('Bot view products error:', err);
-            adminBot.sendMessage(chatId, "პროდუქტების ჩატვირთვისას მოხდა შეცდომა.");
-        }
+        resetState(chatId);
+        const genderKeyboard = {
+            inline_keyboard: [
+                [{ text: 'ქალი', callback_data: 'view_gender_women' }],
+                [{ text: 'კაცი', callback_data: 'view_gender_men' }],
+                [{ text: 'ყველა', callback_data: 'view_gender_all' }]
+            ]
+        };
+        adminBot.sendMessage(chatId, 'აირჩიეთ სქესის კატეგორია:', { reply_markup: genderKeyboard });
     });
     
     adminBot.on('callback_query', async (callbackQuery) => {
@@ -157,6 +148,32 @@ if (ADMIN_BOT_TOKEN) {
         const chatId = msg.chat.id;
         const [action, ...params] = data.split('_');
         try {
+            // [ახალი ლოგიკა] სქესის მიხედვით პროდუქტების სიის ჩვენება
+            if (action === 'view' && params[0] === 'gender') {
+                const gender = params[1]; // 'women', 'men', ან 'all'
+                await adminBot.answerCallbackQuery(callbackQuery.id);
+
+                let result;
+                if (gender === 'all') {
+                    result = await pool.query('SELECT id, name_ge FROM products ORDER BY id ASC');
+                } else {
+                    result = await pool.query('SELECT id, name_ge FROM products WHERE gender = $1 ORDER BY id ASC', [gender]);
+                }
+
+                if (result.rows.length === 0) {
+                    await adminBot.editMessageText(`ამ კატეგორიაში პროდუქტები არ მოიძებნა.`, { chat_id: chatId, message_id: msg.message_id });
+                    return;
+                }
+
+                const productList = result.rows.map(p => `ID ${p.id} | ${p.name_ge}`).join('\n');
+                
+                userState[chatId] = { step: 'awaiting_product_id_for_manage' };
+                
+                await adminBot.deleteMessage(chatId, msg.message_id);
+                await adminBot.sendMessage(chatId, `**პროდუქტების სია:**\n\n${productList}\n\nშეიყვანეთ პროდუქტის ID მის სამართავად (მაგ: 5).`, { reply_markup: { force_reply: true } });
+                return; // ვასრულებთ აქ, რომ სხვა callback-ებმა არ იმუშაოს
+            }
+
             if (action === 'delete') {
                 const [productId] = params;
                 await pool.query('DELETE FROM products WHERE id = $1', [productId]);
@@ -174,7 +191,13 @@ if (ADMIN_BOT_TOKEN) {
                 const f = formatProductFromDb(result.rows[0]);
                 const caption = `ID: ${f.id}\nსახელი: ${f.name.ge}\nფასი: ₾${f.price}\n\nაირჩიეთ ველი რედაქტირებისთვის:`;
                 const editKeyboard = createEditKeyboard(productId);
-                await adminBot.editMessageCaption(caption, { chat_id: chatId, message_id: msg.message_id, reply_markup: editKeyboard });
+                
+                // ვამოწმებთ, მესიჯს აქვს თუ არა ფოტო, რომ გამოვიყენოთ სწორი მეთოდი (editMessageCaption vs editMessageText)
+                if (msg.photo) {
+                    await adminBot.editMessageCaption(caption, { chat_id: chatId, message_id: msg.message_id, reply_markup: editKeyboard });
+                } else {
+                    await adminBot.editMessageText(caption, { chat_id: chatId, message_id: msg.message_id, reply_markup: editKeyboard });
+                }
                 await adminBot.answerCallbackQuery(callbackQuery.id);
             }
             if (action === 'edit' && params.length > 1) {
@@ -193,7 +216,7 @@ if (ADMIN_BOT_TOKEN) {
             if (action === 'back' && params[0] === 'to' && params[1] === 'products') {
                 await adminBot.answerCallbackQuery(callbackQuery.id);
                 await adminBot.deleteMessage(chatId, msg.message_id);
-                adminBot.sendMessage(chatId, "აირჩიეთ მოქმედება:", { reply_markup: mainMenuKeyboard });
+                // უკან დაბრუნებისას ვაჩვენებთ ისევ სქესის არჩევანს
                 adminBot.emit('message', { chat: { id: chatId }, text: 'პროდუქტების ნახვა' });
             }
         } catch (err) {
@@ -208,7 +231,7 @@ if (ADMIN_BOT_TOKEN) {
     });
     
     adminBot.on('message', async (msg) => {
-        // [NEW] Live Chat Reply Logic
+        // Live Chat Reply Logic
         if (msg.reply_to_message && msg.reply_to_message.from.is_bot) {
             const originalMessage = msg.reply_to_message.text;
             if (originalMessage) {
@@ -220,21 +243,45 @@ if (ADMIN_BOT_TOKEN) {
                         session.pendingMessages.push(msg.text);
                         chatSessions.set(sessionId, session);
                     }
-                    return; // Stop processing to avoid falling into product management logic
+                    return; 
                 }
             }
         }
 
-        // [EXISTING] Product Management Logic
         if (!msg.text || msg.text.startsWith('/')) return;
         const commandText = ['პროდუქტების ნახვა', 'პროდუქტის დამატება'];
         if (commandText.includes(msg.text) && !msg.reply_to_message) return;
         
         const state = userState[msg.chat.id];
-        if (!state) return; // This will now correctly ignore non-product related messages
+        if (!state) return; 
         
         const chatId = msg.chat.id;
         try {
+            // [ახალი ლოგიკა] პროდუქტის ID-ის შეყვანის მოლოდინი
+            if (state.step === 'awaiting_product_id_for_manage') {
+                const productId = parseInt(msg.text, 10);
+                if (isNaN(productId)) {
+                    return adminBot.sendMessage(chatId, "არასწორი ფორმატი. გთხოვთ შეიყვანოთ მხოლოდ პროდუქტის ID (ციფრი).");
+                }
+                const result = await pool.query('SELECT * FROM products WHERE id = $1', [productId]);
+                if (result.rows.length === 0) {
+                    return adminBot.sendMessage(chatId, `პროდუქტი ID: ${productId} ვერ მოიძებნა.`);
+                }
+                const p = result.rows[0];
+                const f = formatProductFromDb(p);
+                const caption = `ID: ${f.id}\nსახელი: ${f.name.ge}\nფასი: ₾${f.price}${f.oldPrice ? ` (ძველი: ₾${f.oldPrice})` : ''}`;
+                const inlineKeyboard = { inline_keyboard: [[{ text: 'რედაქტირება', callback_data: `edit_${p.id}` }, { text: 'წაშლა', callback_data: `delete_${p.id}` }]] };
+
+                resetState(chatId); // ვასუფთავებთ მდგომარეობას
+
+                if (f.imageUrls && f.imageUrls.length > 0) {
+                    await adminBot.sendPhoto(chatId, f.imageUrls[0], { caption, reply_markup: inlineKeyboard });
+                } else {
+                    await adminBot.sendMessage(chatId, caption, { reply_markup: inlineKeyboard });
+                }
+                return; // ვასრულებთ, რომ დამატების ლოგიკაში არ გადავიდეს
+            }
+
             if (state.step === 'awaiting_edit_input') {
                 let value = msg.text;
                 if (['price', 'old_price'].includes(state.field)) {
@@ -359,7 +406,7 @@ app.get('/api/chat-response/:sessionId', (req, res) => {
 
 app.get('/api/products', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM products ORDER BY id DESC'); // Changed to DESC for newest first by default
+        const result = await pool.query('SELECT * FROM products ORDER BY id DESC');
         const products = result.rows.map(formatProductFromDb);
         res.json(products);
     } catch (err) {
@@ -435,9 +482,6 @@ app.post('/api/cart/add', async (req, res) => {
         res.status(500).json({ success: false, message: 'Failed to send notification' });
     }
 });
-
-// ... (სხვა API endpoint-ები, როგორიცაა /api/submit-order, აქ უნდა იყოს თუ გაქვთ) ...
-// დარწმუნდით რომ ყველა თქვენი API endpoint-ი აქ არის
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
