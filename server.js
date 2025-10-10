@@ -747,6 +747,11 @@ app.get('/fail', (req, res) => {
     `);
 });
 
+// Serve the main HTML file for all other routes
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
   console.log(`BOG Payment system integrated`);
