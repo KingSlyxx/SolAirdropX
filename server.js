@@ -94,6 +94,7 @@ const formatProductFromDb = (dbRow) => ({
 });
 
 // ===== BOG PAYMENT INTEGRATION =====
+// გადახდის დამუშავების განახლებული ენდპოინტი
 app.post('/api/process-payment', async (req, res) => {
     try {
         const { amount, name, orderData } = req.body;
@@ -107,7 +108,7 @@ app.post('/api/process-payment', async (req, res) => {
 
         console.log(`Payment process started for: ${name}, Amount: ${amount}`);
 
-        // --- Step 1: Get Access Token ---
+        // BOG Token მიღება
         const tokenData = new URLSearchParams({
             'grant_type': 'client_credentials'
         });
@@ -129,7 +130,7 @@ app.post('/api/process-payment', async (req, res) => {
 
         const token = tokenResponse.data.access_token;
 
-        // --- Step 2: Create Order ---
+        // შეკვეთის შექმნა BOG-ში
         const orderPayload = {
             'intent': 'CAPTURE',
             'purchase_units': [
@@ -163,7 +164,7 @@ app.post('/api/process-payment', async (req, res) => {
         if (orderResponse.data._links && orderResponse.data._links.redirect) {
             const payment_url = orderResponse.data._links.redirect.href;
             
-            // Save order to database
+            // შეკვეთის შენახვა ბაზაში
             if (orderData) {
                 const orderId = orderResponse.data.id || `BOG_${Date.now()}`;
                 await pool.query(
@@ -192,18 +193,35 @@ app.post('/api/process-payment', async (req, res) => {
     }
 });
 
-// Payment callback handler
+// გადახდის callback handler
 app.post('/api/payment-callback', async (req, res) => {
     try {
         const { order_id, status, amount } = req.body;
         console.log('Payment callback received:', { order_id, status, amount });
 
         if (status === 'success' && order_id) {
-            // Update order status in database
+            // შეკვეთის სტატუსის განახლება
             await pool.query(
                 'UPDATE orders SET status = $1 WHERE order_id = $2',
                 ['paid', order_id]
             );
+
+            // ნოტიფიკაცია Telegram-ში
+            if (ADMIN_BOT_TOKEN && TELEGRAM_CHANNEL_ID) {
+                const adminBot = new TelegramBot(ADMIN_BOT_TOKEN);
+                await adminBot.sendMessage(
+                    TELEGRAM_CHANNEL_ID, 
+                    `✅ გადახდა დადასტურდა!\n\nშეკვეთის ID: ${order_id}\nთანხა: ₾${amount}`
+                );
+            }
+        }
+
+        res.status(200).json({ success: true });
+    } catch (error) {
+        console.error('Payment callback error:', error);
+        res.status(500).json({ success: false, error: 'Callback processing failed' });
+    }
+});
 
             // Send notification to Telegram
             if (ADMIN_BOT_TOKEN && TELEGRAM_CHANNEL_ID) {
