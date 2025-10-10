@@ -12,10 +12,10 @@ const { Pool } = require('pg');
 const app = express();
 const port = process.env.PORT || 8080;
 
-// --- გარემოს ცვლადები ---
-const ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN || '8151755873:AAEBrslgbP49Q3FiTSKAm7fyQchNbUMVSe0';
+// --- გარემოს ცვლადები (განახლებულია თქვენი მონაცემებით) ---
+const ADMIN_BOT_TOKEN = '8151755873:AAEBrslgbP49Q3FiTSKAm7fyQchNbUMVSe0';
 const TELEGRAM_CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID;
-const TELEGRAM_GROUP_ID = process.env.TELEGRAM_GROUP_ID || '-4644402426';
+const TELEGRAM_GROUP_ID = '-4644402426';
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
 const DATABASE_URL = process.env.DATABASE_URL;
 
@@ -553,7 +553,6 @@ app.get('/api/orders', async (req, res) => {
 app.post('/api/submit-order', async (req, res) => {
     try {
         const orderData = req.body;
-        console.log('Received order data:', orderData);
         
         // First save order to database with pending status
         const orderId = `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`.toUpperCase();
@@ -563,16 +562,12 @@ app.post('/api/submit-order', async (req, res) => {
             [orderId, orderData.customer, orderData.items, orderData.totalPrice, 'payment_pending']
         );
 
-        console.log('Order saved to database:', orderId);
-
         // Initiate BOG payment
-        const paymentResponse = await axios.post(`https://${req.get('host')}/api/process-payment`, {
+        const paymentResponse = await axios.post(`http://localhost:${port}/api/process-payment`, {
             amount: orderData.totalPrice,
-            name: `Order ${orderId}`,
+            name: `Order ${orderId} with ${orderData.items.length} items`,
             orderData: orderData
         });
-
-        console.log('Payment response:', paymentResponse.data);
 
         if (paymentResponse.data.success) {
             res.json({
@@ -582,15 +577,14 @@ app.post('/api/submit-order', async (req, res) => {
                 message: 'Order submitted successfully. Redirecting to payment...'
             });
         } else {
-            throw new Error('Payment initiation failed: ' + JSON.stringify(paymentResponse.data));
+            throw new Error('Payment initiation failed');
         }
 
     } catch (error) {
         console.error('Order submission failed:', error);
         res.status(500).json({
             success: false,
-            error: 'Order submission failed. Please try again later.',
-            details: error.message
+            error: 'Order submission failed. Please try again later.'
         });
     }
 });
@@ -704,52 +698,6 @@ app.get('/api/admin/sales-data', async (req, res) => {
         console.error('Admin sales data error:', error);
         res.status(500).json({ success: false, message: 'Failed to fetch sales data' });
     }
-});
-
-// Success and Fail pages
-app.get('/success', (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Payment Successful</title>
-            <style>
-                body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-                h1 { color: green; }
-            </style>
-        </head>
-        <body>
-            <h1>Payment Successful!</h1>
-            <p>Thank you for your purchase.</p>
-            <a href="/">Return to Home</a>
-        </body>
-        </html>
-    `);
-});
-
-app.get('/fail', (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Payment Failed</title>
-            <style>
-                body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-                h1 { color: red; }
-            </style>
-        </head>
-        <body>
-            <h1>Payment Failed</h1>
-            <p>Please try again.</p>
-            <a href="/">Return to Home</a>
-        </body>
-        </html>
-    `);
-});
-
-// Serve the main HTML file for all other routes
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.listen(port, () => {
