@@ -14,7 +14,8 @@ const app = express();
 const port = process.env.PORT || 8080;
 
 // --- გარემოს ცვლადები (ENV Variables) ---
-const ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN || '8151755873:AAEBrslgbP49Q3FiTSKAm7fyQchNbUMVSe0';
+// **გთხოვთ, შეცვალოთ ეს ტოკენები თქვენი რეალური მონაცემებით production-ში**
+const ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN || '8151755873:AAEBrslgbP49Q3FiTSKAm7fyQchNbUMVSe0'; 
 const TELEGRAM_CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID;
 const TELEGRAM_GROUP_ID = process.env.TELEGRAM_GROUP_ID || '-4644402426';
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
@@ -130,7 +131,6 @@ const formatProductFromDb = (dbRow) => ({
     qcImageUrls: dbRow.qc_image_urls || [],
 });
 
-// განაახლეთ order ID გენერაცია უფრო მოკლე ფორმატში
 const generateOrderId = () => {
     const timestamp = Date.now().toString();
     const random = Math.random().toString(36).substr(2, 5);
@@ -180,8 +180,6 @@ const testBogConnection = async () => {
 
         const tokenData = new URLSearchParams({
             'grant_type': 'client_credentials',
-            'client_id': BOG_CLIENT_ID,
-            'client_secret': BOG_CLIENT_SECRET
         });
 
         const authString = Buffer.from(`${BOG_CLIENT_ID}:${BOG_CLIENT_SECRET}`).toString('base64');
@@ -189,8 +187,7 @@ const testBogConnection = async () => {
         const response = await axios.post(BOG_TOKEN_URL, tokenData.toString(), {
             headers: { 
                 'Content-Type': 'application/x-www-form-urlencoded',
-                // PHP კოდში იყენებდით Basic Auth-ს, ამიტომ აქაც ეს გამოვიყენოთ, თუ Axios-ის მეთოდი არ მუშაობს.
-                // აქ გამოვიყენოთ URLSearchParams, როგორც ქვემოთაა, მაგრამ დარწმუნდეთ, რომ BOG_TOKEN_URL იღებს ამას
+                'Authorization': `Basic ${authString}`
             },
             timeout: 10000
         });
@@ -261,10 +258,8 @@ app.get('/api/products', async (req, res) => {
 app.post('/api/submit-order', async (req, res) => {
     console.log('📦 Received order submission request');
     const orderData = req.body;
-    // totalPrice არის GEL-ში (მაგ: 129.99), BOG-ისთვის გვჭირდება თეთრებში (მაგ: 12999)
-    const { customer, items, totalPrice } = orderData; // <--- totalPrice სწორად არის ამოღებული!
+    const { customer, items, totalPrice } = orderData;
     const amountInGEL = parseFloat(totalPrice);
-    const amountInCents = Math.round(amountInGEL * 100);
     
     // გამოიყენეთ ახალი order ID გენერაცია
     const dbOrderId = generateOrderId();
@@ -299,7 +294,6 @@ app.post('/api/submit-order', async (req, res) => {
             'grant_type': 'client_credentials',
         });
         
-        // PHP კოდში იყენებდით Basic Auth-ს, ამიტომ აქაც ეს მეთოდი გამოვიყენოთ.
         const authString = Buffer.from(`${BOG_CLIENT_ID}:${BOG_CLIENT_SECRET}`).toString('base64');
 
 
@@ -330,23 +324,20 @@ app.post('/api/submit-order', async (req, res) => {
 
         // ✅ BOG E-commerce Payload-ის ფორმატირება
         const bogItems = items.map(item => ({
-            quantity: 1, // ვინაიდან კალათა მოდის, ეს უნდა იყოს 1
+            quantity: 1, 
             unit_price: Math.round(parseFloat(item.price) * 100), // თეთრებში
-            product_id: item.id || 'PRODUCT_SKU', // პროდუქტის SKU/ID
+            product_id: item.id || 'PRODUCT_SKU', 
             description: `${item.name?.ge || item.name || 'Product'} (Size: ${item.size || 'N/A'})`
         }));
         
-        // --- შესწორებული კოდი: totalPrice-ის გამოყენება amount-ის ნაცვლად ---
         const orderPayload = {
-            // BOG API-ის მოთხოვნა: შეკვეთის დეტალები უნდა იყოს purchase_units მასივის შიგნით
             purchase_units: [{
-                // 🛑 ფიქსი: amount-ის ნაცვლად ვიყენებთ totalPrice-ს
-                amount: parseFloat(totalPrice),
+                // **შესწორებული** -TotalPrice-ის გამოყენება
+                amount: amountInGEL,
                 currency: "GEL",
                 capture_method: "AUTO",
                 items: bogItems,
             }],
-            // ეს ველები რჩება ზედა დონეზე
             callback_url: `${BASE_URL}/api/payment-callback`,
             redirect_urls: {
                 success_url: `${BASE_URL}/success?order_id=${dbOrderId}`,
@@ -397,7 +388,6 @@ app.post('/api/submit-order', async (req, res) => {
         } else {
             console.error('❌ Missing payment link or BOG Order ID in response');
             console.error('Full response:', orderResponse.data);
-            // დამატებითი დეტალები, თუ რატომ ვერ მოხდა გადახდა
             const errorReason = orderResponse.data.error_message || 'Unknown API error';
             throw new Error(`Failed to get payment redirect URL or BOG Order ID from response. Reason: ${errorReason}`);
         }
@@ -405,18 +395,12 @@ app.post('/api/submit-order', async (req, res) => {
     } catch (error) {
         console.error('❌ BOG Payment Submission Error Details:');
         console.error('Error message:', error.message);
-        console.error('Error code:', error.code);
         
         if (error.response) {
             console.error('Response status:', error.response.status);
             console.error('Response data:', JSON.stringify(error.response.data, null, 2));
-            console.error('Response headers:', error.response.headers);
-        } else if (error.request) {
-            console.error('No response received. Request details:', error.request._currentUrl || error.request);
         }
         
-        console.error('Stack trace:', error.stack);
-
         // სტატუსის განახლება წარუმატებლობის შემთხვევაში
         try {
             await pool.query('UPDATE orders SET status = $1 WHERE order_id = $2', ['payment_init_failed', dbOrderId]);
@@ -425,7 +409,6 @@ app.post('/api/submit-order', async (req, res) => {
             console.error('❌ Failed to update order status:', updateError);
         }
 
-        // დეტალური error response
         const errorResponse = {
             success: false,
             error: 'შეკვეთის გაგზავნა ვერ მოხერხდა. გთხოვთ სცადოთ თავიდან ან დაგვიკავშირდეთ.',
@@ -443,14 +426,15 @@ app.post('/api/payment-callback', async (req, res) => {
     try {
         const { order_id, status } = req.body;
         
-        // E-COMMERCE სქემაში order_id მოდის BOG-ის orderId, ამიტომ მას უნდა დავუძახოთ bog_order_id
+        // E-COMMERCE სქემაში order_id მოდის BOG-ის orderId
         const bogOrderId = order_id; 
 
         console.log('🔄 Received BOG callback:', { bogOrderId, status });
         
         if (!bogOrderId) {
-            console.error('❌ Missing BOG Order ID in callback');
-            return res.status(400).send('Missing BOG Order ID');
+             // ეს ლოგიკა იჭერს ცარიელ ქოლბექებს (როგორც ლოგში დაფიქსირდა)
+             console.error('❌ Missing BOG Order ID in callback');
+             return res.status(400).send('Missing BOG Order ID');
         }
 
         // 1. შეკვეთის მოძიება BOG ID-ის გამოყენებით
@@ -465,12 +449,12 @@ app.post('/api/payment-callback', async (req, res) => {
         const dbOrderId = order.order_id;
         
         let newStatus = 'failed';
-        if (status === 'succeeded') { // E-COMMERCE სქემაში სტატუსი არის 'succeeded' და არა 'success'
+        if (status === 'succeeded') { 
             newStatus = 'paid';
         } else if (status === 'pending') {
             newStatus = 'pending';
         } else if (status === 'canceled' || status === 'failed') {
-            newStatus = 'payment_failed'; // გამოვიყენოთ უფრო დეტალური სტატუსი
+            newStatus = 'payment_failed'; 
         }
 
         console.log(`🔄 Updating order ${dbOrderId} status to: ${newStatus}`);
@@ -511,7 +495,6 @@ app.get('/success', async (req, res) => {
     
     if (order_id) {
         try {
-            // სტატუსი უკვე განახლდება callback-ში, აქ უბრალოდ ვამოწმებთ, რომ paid იყოს
             await pool.query(
                 'UPDATE orders SET status = $1 WHERE order_id = $2 AND status != $3',
                 ['paid', order_id, 'paid']
@@ -577,7 +560,7 @@ app.get('/fail', async (req, res) => {
     if (order_id) {
         try {
             await pool.query(
-                'UPDATE orders SET status = $1 WHERE order_id = $2 AND status = $3', // სტატუსი მხოლოდ payment_pending-სთვის განვაახლოთ
+                'UPDATE orders SET status = $1 WHERE order_id = $2 AND status = $3', 
                 ['payment_failed', order_id, 'payment_pending']
             );
             console.log(`🔄 Order ${order_id} status updated to payment_failed`);
@@ -692,6 +675,11 @@ if (ADMIN_BOT_TOKEN) {
     adminBot = new TelegramBot(ADMIN_BOT_TOKEN, { polling: true });
     console.log('Admin Bot for product management and Live Chat is running...');
     
+    // ✅ ფიქსი: Telegram Polling Error-ის იგნორირება სერვერის გათიშვის თავიდან ასაცილებლად
+    adminBot.on('polling_error', (error) => {
+        console.error("❌ Telegram Polling Error Caught (Ignored to keep Express server alive):", error.code, error.message);
+    });
+    
     const mainMenuKeyboard = { keyboard: [[{ text: 'პროდუქტების ნახვა' }], [{ text: 'პროდუქტის დამატება' }], [{ text: 'გაყიდვების მონაცემები' }]], resize_keyboard: true };
     const salesKeyboard = { keyboard: [[{ text: '/sales 3' }, { text: '/recent 5' }], [{ text: 'მთავარი მენიუ' }]], resize_keyboard: true };
     const resetState = (chatId) => delete userState[chatId];
@@ -714,7 +702,6 @@ if (ADMIN_BOT_TOKEN) {
         const months = match[1] || 3; 
         
         try {
-            // გამოიყენეთ პირდაპირ DB-დან მონაცემების მოტანის ლოგიკა, რათა არ იყოს დამოკიდებული Express-ის req ობიექტზე
             const dateThreshold = new Date();
             dateThreshold.setMonth(dateThreshold.getMonth() - parseInt(months));
             
@@ -781,7 +768,7 @@ ID: \`${s.order_id}\`
 --------------------------------
 ${salesList}
             `;
-            adminBot.sendMessage(chatId, message, { parse_mode: 'Markdown' }); // შევცვალე HTML-ით Markdown-ზე
+            adminBot.sendMessage(chatId, message, { parse_mode: 'Markdown' }); 
 
         } catch (error) {
             console.error('Error fetching recent sales for Telegram:', error);
@@ -1193,7 +1180,6 @@ app.get('/api/admin/sales-data', async (req, res) => {
             [dateThreshold, 'paid']
         );
         
-        // თანხის ლარებში დაბრუნება (API-ისთვის)
         const totalRevenue = parseFloat(revenueResult.rows[0]?.total_revenue || 0);
 
         res.json({
