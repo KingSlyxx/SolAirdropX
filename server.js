@@ -24,7 +24,7 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const BOG_CLIENT_ID = process.env.BOG_CLIENT_ID;
 const BOG_CLIENT_SECRET = process.env.BOG_CLIENT_SECRET;
 const BOG_TOKEN_URL = 'https://oauth2.bog.ge/auth/realms/bog/protocol/openid-connect/token';
-const BOG_ORDER_URL = 'https://api.bog.ge/payments/v1/checkout';
+const BOG_ORDER_URL = 'https://api.bog.ge/payments/v1/ecommerce/orders'; // ეს უნდა იყოს სწორი URL
 
 // --- PostgreSQL ბაზასთან კავშირის დამყარება ---
 const pool = new Pool({
