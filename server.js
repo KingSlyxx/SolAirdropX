@@ -1,4 +1,4 @@
-// server.js (სრული, ერთიანი კოდი BOG გადახდის კრიტიკული შესწორებებით და დიაგნოსტიკით)
+// server.js (სრული, ერთიანი კოდი BOG გადახდის კრიტიკული შესწორებებით და მუდმივი ტოკენებით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -8,12 +8,12 @@ const path = require('path');
 const axios = require('axios');
 const FormData = require('form-data');
 const { Pool } = require('pg');
-const { URLSearchParams } = require('url'); // აუცილებელია BOG ტოკენისთვის
+const { URLSearchParams } = require('url'); 
 
 const app = express();
 const port = process.env.PORT || 8080;
 
-// --- გარემოს ცვლადები (ENV Variables) ---
+// --- გარემოს ცვლადები ---
 // **გთხოვთ, შეამოწმოთ, რომ ეს ცვლადები სწორად არის დაყენებული თქვენს გარემოში**
 const ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN || '8151755873:AAEBrslgbP49Q3FiTSKAm7fyQchNbUMVSe0';
 const TELEGRAM_CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID; 
@@ -21,10 +21,10 @@ const TELEGRAM_GROUP_ID = process.env.TELEGRAM_GROUP_ID || '-4644402426';
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
 const DATABASE_URL = process.env.DATABASE_URL;
 
-// --- BOG Payment Credentials ---
-// თუ არ გაქვთ ENV ცვლადები დაყენებული, გამოიყენებს ამ დეფოლტ მნიშვნელობებს
-const BOG_CLIENT_ID = process.env.BOG_CLIENT_ID || '10001710';
-const BOG_CLIENT_SECRET = process.env.BOG_CLIENT_SECRET || 'C9Dbowd9pOVt';
+// --- BOG Payment Credentials (ფიქსირებული მნიშვნელობები ტესტირებისთვის) ---
+// **გამოიყენება თქვენს მიერ მოწოდებული ტოკენები**
+const BOG_CLIENT_ID = '10001710'; 
+const BOG_CLIENT_SECRET = 'C9Dbowd9pOVt';
 const BOG_TOKEN_URL = 'https://oauth2.bog.ge/auth/realms/bog/protocol/openid-connect/token';
 const BOG_ORDER_URL = 'https://api.bog.ge/api/v1/checkout/orders';
 
@@ -80,7 +80,6 @@ const initializeDatabase = async () => {
 app.use(cors());
 app.use(express.static('public'));
 app.use(bodyParser.json());
-// აუცილებელია ჰოსტინგ პლატფორმებზე HTTPS პროტოკოლის სწორად ამოსაცნობად
 app.set('trust proxy', true); 
 
 // --- Global State for Telegram Bot ---
@@ -144,13 +143,13 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
-// --- 2. შეკვეთის გაგზავნა და BOG გადახდის ინიციალიზაცია (შესწორებული და დიაგნოსტიკური ლოგიკით) ---
+// --- 2. შეკვეთის გაგზავნა და BOG გადახდის ინიციალიზაცია (კრიტიკული შესწორებებით) ---
 app.post('/api/submit-order', async (req, res) => {
     const orderData = req.body;
     const { customer, items, totalPrice } = orderData;
     const amount = totalPrice;
     
-    // **დარწმუნდით, რომ totalPrice არის დადებითი რიცხვი**
+    // ამოწმებს თანხის ვალიდურობას
     if (parseFloat(amount) <= 0) {
         return res.status(400).json({ success: false, error: 'Invalid order amount.' });
     }
@@ -174,9 +173,8 @@ app.post('/api/submit-order', async (req, res) => {
             'grant_type': 'client_credentials'
         });
 
-        console.log('--- BOG Token Request initiated ---');
-        console.log(`BOG Client ID used: ${BOG_CLIENT_ID}`); // ლოგირება დიაგნოსტიკისთვის
-
+        console.log('--- BOG Token Request initiated (Hardcoded Credentials) ---');
+        
         const tokenResponse = await axios.post(BOG_TOKEN_URL, tokenData.toString(), {
             auth: {
                 username: BOG_CLIENT_ID,
@@ -201,7 +199,7 @@ app.post('/api/submit-order', async (req, res) => {
         const protocol = req.header('x-forwarded-proto') || req.protocol; 
         const BASE_URL = `${protocol}://${host}`;
         
-        console.log(`BASE_URL for redirection: ${BASE_URL}`);
+        console.log(`BASE_URL for redirection: ${BASE_URL} (Check for 'https'!)`);
 
         const orderPayload = {
             'intent': 'CAPTURE',
@@ -209,7 +207,7 @@ app.post('/api/submit-order', async (req, res) => {
                 {
                     'amount': {
                         'currency_code': 'GEL',
-                        'value': parseFloat(amount) // თანხა უნდა იყოს float
+                        'value': parseFloat(amount) 
                     },
                     'description': `შეკვეთა: ${dbOrderId}`
                 }
@@ -275,7 +273,6 @@ app.post('/api/submit-order', async (req, res) => {
         
         await pool.query('UPDATE orders SET status = $1 WHERE order_id = $2', ['payment_init_failed', dbOrderId]); 
         
-        // **აქ ბრუნდება შეცდომის შეტყობინება ფრონტენდზე**
         res.status(500).json({
             success: false,
             error: 'Order submission failed. Please try again later.',
@@ -330,7 +327,7 @@ app.post('/api/payment-callback', async (req, res) => {
 
 
 // ===============================================
-// --- Telegram Bot Setup & Handlers (სრული ლოგიკა) ---
+// --- Telegram Bot Setup & Handlers ---
 // ===============================================
 
 let adminBot;
@@ -735,7 +732,7 @@ app.get('/api/chat-response/:sessionId', (req, res) => {
 });
 
 // ===============================================
-// --- Other Utility Endpoints (მოკლედ) ---
+// --- Other Utility Endpoints ---
 // ===============================================
 
 app.get('/api/orders', async (req, res) => {
@@ -846,6 +843,6 @@ app.get('/api/admin/sales-data', async (req, res) => {
 // ===============================================
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
-  console.log(`BOG Payment system integrated`);
+  console.log(`BOG Payment system integrated with hardcoded credentials.`);
   initializeDatabase();
 });
