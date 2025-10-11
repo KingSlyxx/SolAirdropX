@@ -126,6 +126,35 @@ const fieldPrompts = {
     qc_image_urls: "ატვირთეთ ახალი QC ფოტო(ები). ძველები წაიშლება. დასრულებისას დაწერეთ 'done'."
 };
 
+// BOG კავშირის ტესტი სერვერის გაშვებისას
+const testBogConnection = async () => {
+    try {
+        console.log('🔧 Testing BOG API connection...');
+        const tokenData = new URLSearchParams({
+            'grant_type': 'client_credentials',
+            'client_id': BOG_CLIENT_ID,
+            'client_secret': BOG_CLIENT_SECRET
+        });
+
+        const response = await axios.post(BOG_TOKEN_URL, tokenData.toString(), {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            timeout: 10000
+        });
+
+        if (response.data.access_token) {
+            console.log('✅ BOG API connection test: SUCCESS');
+            return true;
+        } else {
+            console.log('❌ BOG API connection test: FAILED - no token received');
+            return false;
+        }
+    } catch (error) {
+        console.error('❌ BOG API connection test: FAILED -', error.message);
+        console.log('💡 Please check your BOG credentials and network connectivity');
+        return false;
+    }
+};
+
 // ===============================================
 // --- API ენდპოინტები ---
 // ===============================================
@@ -144,25 +173,33 @@ app.get('/api/products', async (req, res) => {
 
 // --- 2. შეკვეთის გაგზავნა და BOG გადახდის ინიციალიზაცია ---
 app.post('/api/submit-order', async (req, res) => {
+    console.log('📦 Received order submission request');
     const orderData = req.body;
     const { customer, items, totalPrice } = orderData;
     const amount = totalPrice;
     
     const dbOrderId = `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`.toUpperCase();
-    
+    console.log('🆔 Generated order ID:', dbOrderId);
+
     // 1. შეკვეთის შენახვა ბაზაში (payment_pending სტატუსით)
     try {
         await pool.query(
             'INSERT INTO orders (order_id, customer_data, items, total_price, status) VALUES ($1, $2, $3, $4, $5)',
             [dbOrderId, JSON.stringify(customer), JSON.stringify(items), totalPrice, 'payment_pending']
         );
+        console.log('✅ Order saved to database successfully');
     } catch (dbError) {
-        console.error('DB Error saving order:', dbError);
-        return res.status(500).json({ success: false, error: 'Failed to save order to database' });
+        console.error('❌ DB Error saving order:', dbError);
+        return res.status(500).json({ 
+            success: false, 
+            error: 'Failed to save order to database',
+            order_id: dbOrderId
+        });
     }
 
     try {
         // --- 2. BOG Token მიღება ---
+        console.log('🔑 Requesting BOG access token...');
         const tokenData = new URLSearchParams({
             'grant_type': 'client_credentials',
             'client_id': BOG_CLIENT_ID,
@@ -170,19 +207,34 @@ app.post('/api/submit-order', async (req, res) => {
             'scope': 'checkout.payment'
         });
 
+        console.log('🔐 Using BOG credentials:', {
+            client_id: BOG_CLIENT_ID.substring(0, 5) + '...',
+            token_url: BOG_TOKEN_URL
+        });
+
         const tokenResponse = await axios.post(BOG_TOKEN_URL, tokenData.toString(), {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
             },
-            timeout: 30000
+            timeout: 15000
         });
 
+        console.log('📨 BOG token response status:', tokenResponse.status);
+        
+        if (!tokenResponse.data.access_token) {
+            console.error('❌ No access token in BOG response:', tokenResponse.data);
+            throw new Error('No access token received from BOG');
+        }
+
         const token = tokenResponse.data.access_token;
+        console.log('✅ BOG access token received successfully');
 
         // --- 3. შეკვეთის შექმნა BOG-ში ---
         const host = req.headers.host;
         const protocol = req.headers['x-forwarded-proto'] || req.protocol;
         const BASE_URL = `${protocol}://${host}`;
+
+        console.log('🌐 Base URL for callbacks:', BASE_URL);
 
         const orderPayload = {
             amount: parseFloat(amount),
@@ -204,16 +256,31 @@ app.post('/api/submit-order', async (req, res) => {
             }
         };
 
+        console.log('🔄 Sending order to BOG API:', {
+            amount: orderPayload.amount,
+            currency: orderPayload.currency,
+            items_count: orderPayload.items.length,
+            callback_url: orderPayload.callback_url
+        });
+
         const orderResponse = await axios.post(BOG_ORDER_URL, orderPayload, {
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             },
-            timeout: 30000
+            timeout: 20000
         });
 
+        console.log('📨 BOG order creation response status:', orderResponse.status);
+        console.log('📨 BOG order creation response data:', orderResponse.data);
+
         const bogOrderId = orderResponse.data.order_id;
-        const paymentLink = orderResponse.data._links && orderResponse.data._links.redirect ? orderResponse.data._links.redirect.href : null;
+        const paymentLink = orderResponse.data._links?.redirect?.href || 
+                          orderResponse.data.links?.payment_url ||
+                          orderResponse.data.redirect_url;
+
+        console.log('🔗 Extracted payment link:', paymentLink);
+        console.log('🆔 BOG Order ID:', bogOrderId);
 
         if (paymentLink && bogOrderId) {
             // 4. BOG ID-ის შენახვა ბაზაში
@@ -222,25 +289,60 @@ app.post('/api/submit-order', async (req, res) => {
                 [bogOrderId, dbOrderId]
             );
 
+            console.log('✅ BOG order created successfully, redirecting to:', paymentLink);
+            
             res.json({ 
                 success: true, 
                 redirect_url: paymentLink,
                 order_id: dbOrderId
             });
         } else {
-            throw new Error('Failed to get payment redirect URL or BOG Order ID');
+            console.error('❌ Missing payment link or BOG Order ID in response');
+            console.error('Full response:', orderResponse.data);
+            throw new Error('Failed to get payment redirect URL or BOG Order ID from response');
         }
 
     } catch (error) {
-        console.error('BOG Payment Submission Error:', error.response?.data || error.message);
-        // სტატუსის განახლება წარუმატებლობის შემთხვევაში
-        await pool.query('UPDATE orders SET status = $1 WHERE order_id = $2', ['payment_init_failed', dbOrderId]); 
+        console.error('❌ BOG Payment Submission Error Details:');
+        console.error('Error message:', error.message);
+        console.error('Error code:', error.code);
         
-        res.status(500).json({
+        if (error.response) {
+            console.error('Response status:', error.response.status);
+            console.error('Response data:', error.response.data);
+            console.error('Response headers:', error.response.headers);
+        } else if (error.request) {
+            console.error('No response received. Request details:', error.request);
+        }
+        
+        console.error('Stack trace:', error.stack);
+
+        // სტატუსის განახლება წარუმატებლობის შემთხვევაში
+        try {
+            await pool.query('UPDATE orders SET status = $1 WHERE order_id = $2', ['payment_init_failed', dbOrderId]);
+            console.log('🔄 Order status updated to payment_init_failed');
+        } catch (updateError) {
+            console.error('❌ Failed to update order status:', updateError);
+        }
+
+        // გაუგზავნეთ დეტალური პასუხი
+        const errorResponse = {
             success: false,
             error: 'Order submission failed',
+            order_id: dbOrderId,
             details: error.response?.data || error.message
-        });
+        };
+
+        // დამატებითი debug ინფორმაცია development-ისთვის
+        if (process.env.NODE_ENV === 'development') {
+            errorResponse.debug = {
+                bog_client_id: BOG_CLIENT_ID.substring(0, 5) + '...',
+                bog_api_url: BOG_ORDER_URL,
+                error_type: error.response ? 'API Error' : 'Network Error'
+            };
+        }
+
+        res.status(500).json(errorResponse);
     }
 });
 
@@ -347,6 +449,20 @@ app.get('/fail', async (req, res) => {
             </body>
         </html>
     `);
+});
+
+// დამატებითი ენდპოინტი BOG კავშირის ტესტირებისთვის
+app.get('/api/test-bog', async (req, res) => {
+    try {
+        const result = await testBogConnection();
+        res.json({ 
+            success: result, 
+            message: result ? 'BOG connection successful' : 'BOG connection failed',
+            credentials_configured: !!(BOG_CLIENT_ID && BOG_CLIENT_SECRET)
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 // ===============================================
@@ -859,8 +975,16 @@ app.get('/api/admin/sales-data', async (req, res) => {
 // ===============================================
 // --- სერვერის გაშვება ---
 // ===============================================
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-  console.log(`BOG Payment system integrated`);
-  initializeDatabase();
+app.listen(port, async () => {
+  console.log(`🚀 Server is running on port ${port}`);
+  console.log(`💳 BOG Payment system integration: ${BOG_CLIENT_ID ? 'CONFIGURED' : 'MISSING CREDENTIALS'}`);
+  
+  await initializeDatabase();
+  
+  // ტესტი BOG კავშირის
+  if (BOG_CLIENT_ID && BOG_CLIENT_SECRET) {
+    await testBogConnection();
+  } else {
+    console.log('❌ BOG credentials missing - payment system will not work');
+  }
 });
