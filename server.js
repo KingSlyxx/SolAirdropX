@@ -1,4 +1,4 @@
-// server.js (საბოლოო, გამოსწორებული ვერსია BOG და Telegram ფიქსებით)
+// server.js (საბოლოო ვერსია BOG-ის Simple/Legacy სქემის შემოწმებით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -323,21 +323,15 @@ app.post('/api/submit-order', async (req, res) => {
 
         console.log('🌐 Base URL for callbacks:', BASE_URL);
 
-        // ✅ BOG E-commerce Payload-ის ფორმატირება
-        const bogItems = items.map(item => ({
-            quantity: 1, 
-            unit_price: Math.round(parseFloat(item.price) * 100), // თეთრებში
-            product_id: item.id || 'PRODUCT_SKU', 
-            description: `${item.name?.ge || item.name || 'Product'} (Size: ${item.size || 'N/A'})`
-        }));
-        
+        // -----------------------------------------------------------
+        // 🛑 ფიქსი: Simple/Legacy სქემის შემოწმება
+        // ამოღებულია items და capture_method. მხოლოდ amount და currency რჩება.
+        // -----------------------------------------------------------
         const orderPayload = {
             purchase_units: [{
-                // 🛑 ფიქსი: ფასის რიცხვის ფორმატის უზრუნველყოფა (GEL-ში)
+                // amount უნდა იყოს GEL-ში (მაგ: 400.00)
                 amount: parseFloat(amountInGEL.toFixed(2)),
                 currency: "GEL",
-                capture_method: "AUTO",
-                items: bogItems,
             }],
             callback_url: `${BASE_URL}/api/payment-callback`,
             redirect_urls: {
@@ -350,7 +344,7 @@ app.post('/api/submit-order', async (req, res) => {
         };
 
 
-        console.log('🔄 Sending E-COMMERCE order to BOG API:', JSON.stringify(orderPayload, null, 2));
+        console.log('🔄 Sending SIMPLE order payload to BOG API:', JSON.stringify(orderPayload, null, 2));
 
         const orderResponse = await axios.post(BOG_ORDER_URL, orderPayload, {
             headers: {
