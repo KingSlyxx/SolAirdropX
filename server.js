@@ -143,21 +143,49 @@ const testBogConnection = async () => {
 
         if (response.data.access_token) {
             console.log('✅ BOG API connection test: SUCCESS');
-            return true;
+            return {
+                success: true,
+                message: 'BOG connection successful',
+                token_received: true
+            };
         } else {
             console.log('❌ BOG API connection test: FAILED - no token received');
-            return false;
+            return {
+                success: false,
+                message: 'No access token received from BOG',
+                token_received: false
+            };
         }
     } catch (error) {
         console.error('❌ BOG API connection test: FAILED -', error.message);
         console.log('💡 Please check your BOG credentials and network connectivity');
-        return false;
+        return {
+            success: false,
+            message: error.message,
+            token_received: false,
+            error_details: error.response?.data || error.code
+        };
     }
 };
 
 // ===============================================
 // --- API ენდპოინტები ---
 // ===============================================
+
+// --- ძირითადი ენდპოინტი სერვერის სტატუსისთვის ---
+app.get('/', (req, res) => {
+    res.json({
+        message: 'LXRYTO Server is running',
+        version: '1.0',
+        endpoints: {
+            products: '/api/products',
+            submit_order: '/api/submit-order',
+            test_bog: '/api/test-bog',
+            orders: '/api/orders',
+            admin_sales: '/api/admin/sales-data'
+        }
+    });
+});
 
 // --- 1. პროდუქციის გამოტანა ---
 app.get('/api/products', async (req, res) => {
@@ -451,17 +479,49 @@ app.get('/fail', async (req, res) => {
     `);
 });
 
-// დამატებითი ენდპოინტი BOG კავშირის ტესტირებისთვის
+// --- 6. BOG კავშირის ტესტის ენდპოინტი ---
 app.get('/api/test-bog', async (req, res) => {
     try {
+        console.log('🧪 Testing BOG connection via API endpoint...');
         const result = await testBogConnection();
-        res.json({ 
-            success: result, 
-            message: result ? 'BOG connection successful' : 'BOG connection failed',
-            credentials_configured: !!(BOG_CLIENT_ID && BOG_CLIENT_SECRET)
+        
+        res.json({
+            success: result.success,
+            message: result.message,
+            credentials_configured: !!(BOG_CLIENT_ID && BOG_CLIENT_SECRET),
+            environment: process.env.NODE_ENV || 'development',
+            timestamp: new Date().toISOString(),
+            details: result
         });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        console.error('Error in /api/test-bog:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error.message,
+            credentials_configured: !!(BOG_CLIENT_ID && BOG_CLIENT_SECRET)
+        });
+    }
+});
+
+// --- 7. სერვერის ჯანმრთელობის შემოწმება ---
+app.get('/api/health', async (req, res) => {
+    try {
+        // ბაზასთან კავშირის შემოწმება
+        await pool.query('SELECT 1');
+        
+        res.json({
+            status: 'healthy',
+            database: 'connected',
+            bog_configured: !!(BOG_CLIENT_ID && BOG_CLIENT_SECRET),
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime()
+        });
+    } catch (error) {
+        res.status(500).json({
+            status: 'unhealthy',
+            database: 'disconnected',
+            error: error.message
+        });
     }
 });
 
@@ -987,4 +1047,12 @@ app.listen(port, async () => {
   } else {
     console.log('❌ BOG credentials missing - payment system will not work');
   }
+  
+  console.log(`🌐 Available endpoints:`);
+  console.log(`   GET  /api/test-bog - BOG connection test`);
+  console.log(`   GET  /api/health - Server health check`);
+  console.log(`   GET  /api/products - Products list`);
+  console.log(`   POST /api/submit-order - Submit order with BOG payment`);
+  console.log(`   GET  /success - Payment success page`);
+  console.log(`   GET  /fail - Payment failure page`);
 });
