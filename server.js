@@ -337,31 +337,25 @@ app.post('/api/submit-order', async (req, res) => {
             description: `${item.name?.ge || item.name || 'Product'} (Size: ${item.size || 'N/A'})`
         }));
         
-        const orderPayload = {
-            // ✅ external_order_id არის აუცილებელი ველის სახელი
-            external_order_id: dbOrderId, 
-            purchase_units: {
-                currency: 'GEL',
-                // ✅ total_amount არის string და თეთრებში
-                total_amount: amountInCents.toString(), 
-                basket: bogItems
-            },
-            // ✅ redirect_urls სწორი ფორმატი
-            redirect_urls: {
-                fail: `${BASE_URL}/fail?order_id=${dbOrderId}`,
-                success: `${BASE_URL}/success?order_id=${dbOrderId}`
-            },
-            // ✅ callback_url სწორი ფორმატი
-            callback_url: `${BASE_URL}/api/payment-callback`,
-            customer_info: {
-                full_name: customer.firstName + ' ' + (customer.lastName || ''),
-                masked_phone: customer.phone,
-                email: customer.email || undefined
-            },
-            // დამატებითი ველები
-            theme: 'dark', 
-            locale: 'ka'
-        };
+        // --- შესწორებული კოდი ---
+const orderPayload = {
+    // BOG API-ის მოთხოვნა: შეკვეთის დეტალები უნდა იყოს purchase_units მასივის შიგნით
+    purchase_units: [{
+        amount: parseFloat(amount),
+        currency: "GEL",
+        capture_method: "AUTO",
+        items: bogItems,
+    }],
+    // ეს ველები რჩება ზედა დონეზე
+    callback_url: `${BASE_URL}/api/payment-callback`,
+    redirect_urls: {
+        success_url: `${BASE_URL}/success?order_id=${dbOrderId}`,
+        failure_url: `${BASE_URL}/fail?order_id=${dbOrderId}`
+    },
+    extra: {
+        order_id: dbOrderId
+    }
+};
 
 
         console.log('🔄 Sending E-COMMERCE order to BOG API:', JSON.stringify(orderPayload, null, 2));
