@@ -9,6 +9,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const { Pool } = require('pg');
 const { URLSearchParams } = require('url');
+const moment = require('moment'); // საჭიროა sales-data როუტისთვის
 
 const app = express();
 const port = process.env.PORT || 8080;
@@ -26,10 +27,14 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const BOG_CLIENT_ID = process.env.BOG_CLIENT_ID || '10001710';
 const BOG_CLIENT_SECRET = process.env.BOG_CLIENT_SECRET || 'C9Dbowd9pOVt';
 
-// --- BOG-ის გამართული URL-ები (თუ იყენებთ პროდუქციის გარემოს) ---
-// თუ სატესტო რეჟიმში ხართ, შეცვალეთ bog.ge-ს ნაცვლად bog.ge:8443-ზე
+// --- BOG-ის გამართული URL-ები (Quick Payment API v1) ---
 const BOG_BASE_URL = process.env.BOG_BASE_URL || 'https://api.bog.ge';
-const BOG_OAUTH_URL = process.env.BOG_OAUTH_URL || 'https://oauth2.bog.ge/auth/realms/bog/protocol/openid-connect/token';
+const BOG_OAUTH_URL = process.env.BOG_OAUTH_URL || 'https://api.bog.ge/oauth/token'; // სწორი URL Token-ისთვის
+const BOG_PURCHASE_URL = `${BOG_BASE_URL}/api/v1/payment/purchase`; // სწორი URL შეკვეთისთვის
+
+// --- კლიენტის BASE URL (საჭიროა success/fail URL-ებისთვის) ---
+const CLIENT_BASE_URL = process.env.CLIENT_BASE_URL || `http://localhost:${port}`; 
+
 
 // --- PostgreSQL ბაზასთან კავშირის დამყარება ---
 const pool = new Pool({
@@ -37,7 +42,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// --- Telegram Bot ინიციალიზაცია (ადრე, რათა სხვა ენდპოინტებმა გამოიყენონ) ---
+// --- Telegram Bot ინიციალიზაცია ---
 let adminBot;
 if (ADMIN_BOT_TOKEN) {
     adminBot = new TelegramBot(ADMIN_BOT_TOKEN, { polling: true });
@@ -98,6 +103,34 @@ const userState = {};
 const chatSessions = new Map();
 
 // --- Helper Functions ---
+
+/**
+ * BOG Access Token-ის მიღება
+ */
+const getBogAccessToken = async () => {
+    if (!BOG_CLIENT_ID || !BOG_CLIENT_SECRET) {
+        throw new Error('BOG_CLIENT_ID or BOG_CLIENT_SECRET is missing.');
+    }
+    try {
+        const authString = Buffer.from(`${BOG_CLIENT_ID}:${BOG_CLIENT_SECRET}`).toString('base64');
+        const tokenResponse = await axios.post(
+            BOG_OAUTH_URL,
+            new URLSearchParams({ grant_type: 'client_credentials' }).toString(),
+            {
+                headers: {
+                    'Authorization': `Basic ${authString}`,
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                timeout: 30000
+            }
+        );
+        return tokenResponse.data.access_token;
+    } catch (error) {
+        console.error('Error fetching BOG Access Token:', error.response ? error.response.data : error.message);
+        throw new Error('Failed to get BOG Access Token');
+    }
+};
+
 const formatProductFromDb = (dbRow) => ({
     id: dbRow.id,
     name: { ge: dbRow.name_ge, en: dbRow.name_en },
@@ -169,6 +202,7 @@ app.post('/api/submit-order', async (req, res) => {
             'INSERT INTO orders (order_id, customer_data, items, total_price, status) VALUES ($1, $2, $3, $4, $5)',
             [dbOrderId, JSON.stringify(customer), JSON.stringify(items), totalPrice, 'payment_pending']
         );
+        console.log(`Order ${dbOrderId} inserted into DB (pending).`);
     } catch (dbError) {
         console.error('DB Error saving order:', dbError);
         return res.status(500).json({ success: false, error: 'Failed to save order to database' });
@@ -176,44 +210,25 @@ app.post('/api/submit-order', async (req, res) => {
 
     try {
         // --- 2. BOG Token მიღება ---
-        const authString = Buffer.from(`${BOG_CLIENT_ID}:${BOG_CLIENT_SECRET}`).toString('base64');
-        const tokenData = new URLSearchParams({
-            'grant_type': 'client_credentials'
-        });
-
-        const tokenResponse = await axios.post(BOG_OAUTH_URL, tokenData.toString(), {
-            headers: {
-                'Authorization': `Basic ${authString}`,
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            timeout: 30000
-        });
-
-        const token = tokenResponse.data.access_token;
-
+        const token = await getBogAccessToken();
+        
         // --- 3. შეკვეთის შექმნა BOG-ში ---
-        const host = req.headers.host;
-        const protocol = req.protocol === 'http' && host.startsWith('localhost') ? 'http' : 'https'; // ლოკალური ტესტირებისთვის
-        const BASE_URL = `${protocol}://${host}`;
-
+        // იყენებს CLIENT_BASE_URL-ს (სრული დომენი)
         const orderPayload = {
             'amount': parseFloat(amount),
             'currency': 'GEL',
             'extPaymentId': dbOrderId,
             'description': `შეკვეთა: ${dbOrderId}`,
-            'successUrl': `${BASE_URL}/success?order_id=${dbOrderId}`,
-            'failUrl': `${BASE_URL}/fail?order_id=${dbOrderId}`,
-            'callbackUrl': `${BASE_URL}/api/payment-callback`,
+            'successUrl': `${CLIENT_BASE_URL}/success?order_id=${dbOrderId}`,
+            'failUrl': `${CLIENT_BASE_URL}/fail?order_id=${dbOrderId}`,
+            'callbackUrl': `${CLIENT_BASE_URL}/api/payment-callback`, // ეს უნდა იყოს გარედან მისაწვდომი URL
             'locale': 'ka',
             'preAuth': false
         };
 
-        // BOG-ის API-ს როუტი შეიცვალა V1-ის გამოყენებისთვის
-        const BOG_PURCHASE_URL = `${BOG_BASE_URL}/api/v1/payment/purchase`;
-
         const orderResponse = await axios.post(BOG_PURCHASE_URL, orderPayload, {
             headers: {
-                'Authorization': `Bearer ${token}`,
+                'Authorization': `Bearer ${token}`, // გამოიყენება Bearer Token-ი
                 'Content-Type': 'application/json',
                 'Accept-Language': 'ka'
             },
@@ -221,7 +236,7 @@ app.post('/api/submit-order', async (req, res) => {
         });
 
         const paymentUrl = orderResponse.data.links.find(link => link.rel === 'forms')?.uri;
-        const bogPaymentId = orderResponse.data.id; // BOG-ის მიერ გაცემული Payment ID
+        const bogPaymentId = orderResponse.data.id; 
 
         if (paymentUrl && bogPaymentId) {
             // 4. BOG ID-ის შენახვა ბაზაში
@@ -232,17 +247,18 @@ app.post('/api/submit-order', async (req, res) => {
 
             res.json({ 
                 success: true, 
-                redirect_url: paymentUrl, // გამოიყენეთ paymentUrl გადასასვლელად
-                order_id: dbOrderId
+                redirect_url: paymentUrl, 
+                order_id: dbOrderId,
+                message: 'Payment initialized successfully'
             });
         } else {
             throw new Error('Failed to get payment redirect URL or BOG Payment ID');
         }
 
     } catch (error) {
+        // შეცდომის დროს უკვე ჩაწერილი შეკვეთის წაშლა
         console.error('BOG Payment Submission Error:', error.response?.data || error.message);
-        // სტატუსის განახლება წარუმატებლობის შემთხვევაში
-        await pool.query('UPDATE orders SET status = $1 WHERE order_id = $2', ['payment_init_failed', dbOrderId]); 
+        await pool.query('DELETE FROM orders WHERE order_id = $1', [dbOrderId]); 
         
         res.status(500).json({
             success: false,
@@ -260,10 +276,10 @@ app.post('/api/payment-callback', async (req, res) => {
 
         if (!extPaymentId || !paymentStatus) return res.status(400).send('Missing BOG data');
 
-        const dbOrderId = extPaymentId; // extPaymentId არის ჩვენს მიერ გაგზავნილი order_id
+        const dbOrderId = extPaymentId; 
         
         let newStatus = 'failed';
-        if (paymentStatus === 'SUCCESS') { // BOG-ის სტატუსი
+        if (paymentStatus === 'SUCCESS') { 
             newStatus = 'paid';
         } else if (paymentStatus === 'PENDING') {
             newStatus = 'pending';
@@ -278,20 +294,29 @@ app.post('/api/payment-callback', async (req, res) => {
         );
 
         // 2. ნოტიფიკაცია Telegram-ში
-        if (adminBot && TELEGRAM_GROUP_ID) {
+        if (adminBot && TELEGRAM_GROUP_ID && newStatus === 'paid') {
             const orderResult = await pool.query('SELECT * FROM orders WHERE order_id = $1', [dbOrderId]);
             const order = orderResult.rows.length > 0 ? orderResult.rows[0] : null;
 
             if (order) {
-                let message = ``;
-                if (newStatus === 'paid') {
-                     message = `✅ **გადახდა დადასტურდა!**\n\n*შეკვეთის ID:* ${dbOrderId}\n*თანხა:* ₾${order.total_price}`;
-                } else if (newStatus === 'failed' || newStatus === 'canceled') {
-                     message = `❌ **გადახდა ${newStatus}**\n\n*შეკვეთის ID:* ${dbOrderId}\n*თანხა:* ₾${order.total_price}`;
-                }
-                if (message) {
-                     await adminBot.sendMessage(TELEGRAM_GROUP_ID, message, { parse_mode: 'Markdown' });
-                }
+                const customer = order.customer_data || {};
+                const itemsList = (order.items || []).map(item => 
+                    `• ${item.name} x${item.quantity}`
+                ).join('\n');
+
+                const message = `
+🔔 *ახალი შეკვეთა მიღებულია!* 🔔
+==============================
+*შეკვეთის ID:* \`${order.order_id}\`
+*სტატუსი:* *PAID* ✅ (გადახდილია)
+*ჯამი:* *${order.total_price.toFixed(2)} GEL*
+*მომხმარებელი:* ${customer.name || 'N/A'}
+*ტელეფონი:* \`${customer.phone || 'N/A'}\`
+*შეკვეთილი ნივთები:*
+${itemsList}
+==============================
+`;
+                await adminBot.sendMessage(TELEGRAM_GROUP_ID, message, { parse_mode: 'Markdown' });
             }
         }
         
@@ -771,8 +796,7 @@ app.get('/api/order-status/:orderId', async (req, res) => {
 app.get('/api/admin/sales-data', async (req, res) => {
     try {
         const { months = 3 } = req.query;
-        const dateThreshold = new Date();
-        dateThreshold.setMonth(dateThreshold.getMonth() - parseInt(months));
+        const dateThreshold = moment().subtract(parseInt(months), 'months').toDate(); // იყენებს moment-ს
 
         const revenueResult = await pool.query(
             'SELECT SUM(total_price) as total_revenue FROM orders WHERE created_at >= $1 AND status = $2',
