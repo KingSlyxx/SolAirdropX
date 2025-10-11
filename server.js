@@ -59,7 +59,7 @@ const initializeDatabase = async () => {
         await client.query(`
             CREATE TABLE IF NOT EXISTS orders (
                 order_id VARCHAR(50) PRIMARY KEY, 
-                bog_order_id VARCHAR(100) UNIQUE,  
+                bog_order_id VARCHAR(100),  
                 customer_data JSONB,
                 items JSONB,
                 total_price NUMERIC(10, 2),
@@ -69,16 +69,33 @@ const initializeDatabase = async () => {
         `);
         console.log('Orders table is ready.');
         
-        // შეამოწმეთ და განაახლეთ არსებული ცხრილის სტრუქტურა საჭიროების შემთხვევაში
+        // შეამოწმეთ და დაამატეთ bog_order_id ველი თუ არ არსებობს
         try {
+            const columnCheck = await client.query(`
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'orders' AND column_name = 'bog_order_id'
+            `);
+            
+            if (columnCheck.rows.length === 0) {
+                await client.query(`
+                    ALTER TABLE orders 
+                    ADD COLUMN bog_order_id VARCHAR(100)
+                `);
+                console.log('✅ Added bog_order_id column to orders table');
+            } else {
+                console.log('✅ bog_order_id column already exists');
+            }
+
+            // შეამოწმეთ და განაახლეთ order_id ველის ტიპი საჭიროების შემთხვევაში
             await client.query(`
                 ALTER TABLE orders 
-                ALTER COLUMN order_id TYPE VARCHAR(50),
-                ALTER COLUMN bog_order_id TYPE VARCHAR(100);
+                ALTER COLUMN order_id TYPE VARCHAR(50)
             `);
-            console.log('Orders table structure updated successfully.');
+            console.log('✅ Verified order_id column type');
+
         } catch (alterError) {
-            console.log('Orders table structure is already correct or cannot be altered:', alterError.message);
+            console.log('Table structure check completed:', alterError.message);
         }
         
         client.release();
