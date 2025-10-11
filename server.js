@@ -1,4 +1,4 @@
-// server.js (სრული, ერთიანი კოდი BOG გადახდის კრიტიკული შესწორებებით)
+// server.js (სრული, ერთიანი კოდი BOG გადახდის კრიტიკული შესწორებებით და დიაგნოსტიკით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -14,7 +14,7 @@ const app = express();
 const port = process.env.PORT || 8080;
 
 // --- გარემოს ცვლადები (ENV Variables) ---
-// გამოიყენეთ თქვენი რეალური ENV ცვლადები!
+// **გთხოვთ, შეამოწმოთ, რომ ეს ცვლადები სწორად არის დაყენებული თქვენს გარემოში**
 const ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN || '8151755873:AAEBrslgbP49Q3FiTSKAm7fyQchNbUMVSe0';
 const TELEGRAM_CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID; 
 const TELEGRAM_GROUP_ID = process.env.TELEGRAM_GROUP_ID || '-4644402426'; 
@@ -22,6 +22,7 @@ const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
 const DATABASE_URL = process.env.DATABASE_URL;
 
 // --- BOG Payment Credentials ---
+// თუ არ გაქვთ ENV ცვლადები დაყენებული, გამოიყენებს ამ დეფოლტ მნიშვნელობებს
 const BOG_CLIENT_ID = process.env.BOG_CLIENT_ID || '10001710';
 const BOG_CLIENT_SECRET = process.env.BOG_CLIENT_SECRET || 'C9Dbowd9pOVt';
 const BOG_TOKEN_URL = 'https://oauth2.bog.ge/auth/realms/bog/protocol/openid-connect/token';
@@ -86,7 +87,7 @@ app.set('trust proxy', true);
 const userState = {};
 const chatSessions = new Map();
 
-// --- Helper Functions ---
+// --- Helper Functions (გამოყენებულია Telegram-ში) ---
 const formatProductFromDb = (dbRow) => ({
     id: dbRow.id,
     name: { ge: dbRow.name_ge, en: dbRow.name_en },
@@ -115,7 +116,6 @@ const createEditKeyboard = (productId) => ({
 
 const fieldPrompts = {
     name_ge: 'შეიყვანეთ ახალი სახელი (ქართულად):',
-    // ... [other field prompts]
     name_en: 'შეიყვანეთ ახალი სახელი (ინგლისურად):',
     price: 'შეიყვანეთ ახალი ფასი (მაგ: 129.99):',
     old_price: 'შეიყვანეთ ახალი ძველი ფასი (თუ არ აქვს, დაწერეთ 0):',
@@ -144,12 +144,17 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
-// --- 2. შეკვეთის გაგზავნა და BOG გადახდის ინიციალიზაცია (შესწორებული) ---
+// --- 2. შეკვეთის გაგზავნა და BOG გადახდის ინიციალიზაცია (შესწორებული და დიაგნოსტიკური ლოგიკით) ---
 app.post('/api/submit-order', async (req, res) => {
     const orderData = req.body;
     const { customer, items, totalPrice } = orderData;
     const amount = totalPrice;
     
+    // **დარწმუნდით, რომ totalPrice არის დადებითი რიცხვი**
+    if (parseFloat(amount) <= 0) {
+        return res.status(400).json({ success: false, error: 'Invalid order amount.' });
+    }
+
     const dbOrderId = `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`.toUpperCase();
     
     // 1. შეკვეთის შენახვა ბაზაში
@@ -164,10 +169,13 @@ app.post('/api/submit-order', async (req, res) => {
     }
 
     try {
-        // --- 2. BOG Token მიღება (კრიტიკული შესწორება) ---
+        // --- 2. BOG Token მიღება (კრიტიკული შესწორება: URLSearchParams.toString()) ---
         const tokenData = new URLSearchParams({
             'grant_type': 'client_credentials'
         });
+
+        console.log('--- BOG Token Request initiated ---');
+        console.log(`BOG Client ID used: ${BOG_CLIENT_ID}`); // ლოგირება დიაგნოსტიკისთვის
 
         const tokenResponse = await axios.post(BOG_TOKEN_URL, tokenData.toString(), {
             auth: {
@@ -181,13 +189,19 @@ app.post('/api/submit-order', async (req, res) => {
         });
 
         const token = tokenResponse.data.access_token;
-        if (!token) throw new Error('Failed to get BOG access token.');
+        if (!token) {
+            console.error('BOG Token Error: Token field is missing in response.', tokenResponse.data);
+            throw new Error('Failed to get BOG access token (Token field missing)');
+        }
+        console.log(`BOG Token received successfully. Length: ${token.length}`);
 
-        // --- 3. შეკვეთის შექმნა BOG-ში ---
+
+        // --- 3. შეკვეთის შექმნა BOG-ში (კრიტიკული შესწორება: HTTPS/x-forwarded-proto) ---
         const host = req.headers.host;
-        // პროტოკოლის სწორად მიღება ჰოსტინგზე (Railway, Heroku)
         const protocol = req.header('x-forwarded-proto') || req.protocol; 
         const BASE_URL = `${protocol}://${host}`;
+        
+        console.log(`BASE_URL for redirection: ${BASE_URL}`);
 
         const orderPayload = {
             'intent': 'CAPTURE',
@@ -195,7 +209,7 @@ app.post('/api/submit-order', async (req, res) => {
                 {
                     'amount': {
                         'currency_code': 'GEL',
-                        'value': parseFloat(amount)
+                        'value': parseFloat(amount) // თანხა უნდა იყოს float
                     },
                     'description': `შეკვეთა: ${dbOrderId}`
                 }
@@ -227,6 +241,8 @@ app.post('/api/submit-order', async (req, res) => {
                 [bogOrderId, dbOrderId]
             );
 
+            console.log(`BOG Order successful. Redirect Link: ${paymentLink}`);
+
             // წარმატებული პასუხი გადამისამართების ლინკით
             res.json({ 
                 success: true, 
@@ -234,16 +250,32 @@ app.post('/api/submit-order', async (req, res) => {
                 order_id: dbOrderId
             });
         } else {
-            console.error('BOG Order Creation Response:', orderResponse.data);
+            console.error('BOG Order Creation FAILED. Full Response Data:', JSON.stringify(orderResponse.data, null, 2));
             throw new Error('Failed to get payment redirect URL or BOG Order ID from BOG');
         }
 
     } catch (error) {
-        // აქ ვიღებთ დეტალურ შეცდომას, რამაც გამოიწვია "Order submission failed"
-        console.error('BOG Payment Submission Error:', error.response?.data || error.message);
+        // --- შეცდომის დეტალური ლოგირება ---
+        console.error('================================================================');
+        console.error(`!!! BOG Payment Submission Error for Order ${dbOrderId} !!!`);
+        
+        if (error.response) {
+            // 1. HTTP 4xx ან 5xx შეცდომა BOG-ის მხრიდან
+            console.error(`Status: ${error.response.status}`);
+            console.error('BOG Response Data (Error):', JSON.stringify(error.response.data, null, 2));
+        } else if (error.request) {
+            // 2. მოთხოვნა გაიგზავნა, მაგრამ პასუხი არ მოვიდა (Timeout ან Network Error)
+            console.error('Request Error: No response received from BOG API (Timeout or Network)');
+            console.error('Error Message:', error.message);
+        } else {
+            // 3. ლოკალური შეცდომა
+            console.error('Local Error Message:', error.message);
+        }
+        console.error('================================================================');
         
         await pool.query('UPDATE orders SET status = $1 WHERE order_id = $2', ['payment_init_failed', dbOrderId]); 
         
+        // **აქ ბრუნდება შეცდომის შეტყობინება ფრონტენდზე**
         res.status(500).json({
             success: false,
             error: 'Order submission failed. Please try again later.',
@@ -328,7 +360,6 @@ if (ADMIN_BOT_TOKEN) {
         const months = match[1] || 3; 
         
         try {
-            // აქ ვიყენებთ პირდაპირ DB-ს ლოგიკას, რადგან ტელეგრამის ბოტი სერვერზეა
             const dateThreshold = new Date();
             dateThreshold.setMonth(dateThreshold.getMonth() - parseInt(months));
             
@@ -376,7 +407,7 @@ if (ADMIN_BOT_TOKEN) {
             }
 
             const salesList = sales.map(s => {
-                const customer = s.customer_data ? JSON.parse(s.customer_data) : {};
+                const customer = s.customer_data;
                 const date = new Date(s.created_at).toLocaleString('ka-GE');
                 return `
 ID: \`${s.order_id}\`
@@ -464,7 +495,7 @@ ${salesList}
                     return;
                 }
                 const f = formatProductFromDb(result.rows[0]);
-                const caption = `ID: ${f.id}\nსახელი: ${f.name.ge}\nფასი: ₾${f.price}\n\nაირჩიეთ ველი რედაქტირებისთვის:`;
+                const caption = `ID: ${f.id}\nსახელი: ${f.name.ge}\nფასი: ₾${f.price}${f.oldPrice ? ` (ძველი: ₾${f.oldPrice})` : ''}\n\nაირჩიეთ ველი რედაქტირებისთვის:`;
                 const editKeyboard = createEditKeyboard(productId);
                 
                 await adminBot.answerCallbackQuery(callbackQuery.id);
