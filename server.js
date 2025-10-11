@@ -24,7 +24,6 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const BOG_CLIENT_ID = process.env.BOG_CLIENT_ID;
 const BOG_CLIENT_SECRET = process.env.BOG_CLIENT_SECRET;
 const BOG_TOKEN_URL = 'https://oauth2.bog.ge/auth/realms/bog/protocol/openid-connect/token';
-// ✅ ფიქსი 1: სწორი BOG URL-ის გამოყენება. ეს უკვე სწორი იყო, მაგრამ ვადასტურებთ.
 const BOG_ORDER_URL = 'https://api.bog.ge/payments/v1/ecommerce/orders'; 
 
 // --- PostgreSQL ბაზასთან კავშირის დამყარება ---
@@ -262,8 +261,8 @@ app.get('/api/products', async (req, res) => {
 app.post('/api/submit-order', async (req, res) => {
     console.log('📦 Received order submission request');
     const orderData = req.body;
-    const { customer, items, totalPrice } = orderData;
     // totalPrice არის GEL-ში (მაგ: 129.99), BOG-ისთვის გვჭირდება თეთრებში (მაგ: 12999)
+    const { customer, items, totalPrice } = orderData; // <--- totalPrice სწორად არის ამოღებული!
     const amountInGEL = parseFloat(totalPrice);
     const amountInCents = Math.round(amountInGEL * 100);
     
@@ -329,7 +328,7 @@ app.post('/api/submit-order', async (req, res) => {
 
         console.log('🌐 Base URL for callbacks:', BASE_URL);
 
-        // ✅ ფიქსი 2: BOG E-commerce Payload-ის ფორმატირება (როგორც PHP კოდში იყო)
+        // ✅ BOG E-commerce Payload-ის ფორმატირება
         const bogItems = items.map(item => ({
             quantity: 1, // ვინაიდან კალათა მოდის, ეს უნდა იყოს 1
             unit_price: Math.round(parseFloat(item.price) * 100), // თეთრებში
@@ -337,25 +336,26 @@ app.post('/api/submit-order', async (req, res) => {
             description: `${item.name?.ge || item.name || 'Product'} (Size: ${item.size || 'N/A'})`
         }));
         
-        // --- შესწორებული კოდი ---
-const orderPayload = {
-    // BOG API-ის მოთხოვნა: შეკვეთის დეტალები უნდა იყოს purchase_units მასივის შიგნით
-    purchase_units: [{
-        amount: parseFloat(amount),
-        currency: "GEL",
-        capture_method: "AUTO",
-        items: bogItems,
-    }],
-    // ეს ველები რჩება ზედა დონეზე
-    callback_url: `${BASE_URL}/api/payment-callback`,
-    redirect_urls: {
-        success_url: `${BASE_URL}/success?order_id=${dbOrderId}`,
-        failure_url: `${BASE_URL}/fail?order_id=${dbOrderId}`
-    },
-    extra: {
-        order_id: dbOrderId
-    }
-};
+        // --- შესწორებული კოდი: totalPrice-ის გამოყენება amount-ის ნაცვლად ---
+        const orderPayload = {
+            // BOG API-ის მოთხოვნა: შეკვეთის დეტალები უნდა იყოს purchase_units მასივის შიგნით
+            purchase_units: [{
+                // 🛑 ფიქსი: amount-ის ნაცვლად ვიყენებთ totalPrice-ს
+                amount: parseFloat(totalPrice),
+                currency: "GEL",
+                capture_method: "AUTO",
+                items: bogItems,
+            }],
+            // ეს ველები რჩება ზედა დონეზე
+            callback_url: `${BASE_URL}/api/payment-callback`,
+            redirect_urls: {
+                success_url: `${BASE_URL}/success?order_id=${dbOrderId}`,
+                failure_url: `${BASE_URL}/fail?order_id=${dbOrderId}`
+            },
+            extra: {
+                order_id: dbOrderId
+            }
+        };
 
 
         console.log('🔄 Sending E-COMMERCE order to BOG API:', JSON.stringify(orderPayload, null, 2));
@@ -708,7 +708,7 @@ if (ADMIN_BOT_TOKEN) {
         adminBot.sendMessage(msg.chat.id, 'აირჩიეთ გაყიდვების ბრძანება:', { reply_markup: salesKeyboard });
     });
     
-    // --- ✅ ფიქსი 3: /sales ბრძანების დამმუშავებელი (ამოღებულია req.headers.host) ---
+    // --- /sales ბრძანების დამმუშავებელი ---
     adminBot.onText(/\/sales\s?(\d*)/, async (msg, match) => {
         const chatId = msg.chat.id;
         const months = match[1] || 3; 
