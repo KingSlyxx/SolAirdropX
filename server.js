@@ -1,4 +1,4 @@
-// server.js (საბოლოო ვერსია BOG-ის Simple/Legacy სქემის შემოწმებით)
+// server.js (საბოლოო, სრული და გამოსწორებული კოდი)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -316,7 +316,7 @@ app.post('/api/submit-order', async (req, res) => {
         const token = tokenResponse.data.access_token;
         console.log('✅ BOG access token received successfully');
 
-        // --- 3. შეკვეთის შექმნა BOG-ში ---
+        // --- 3. შეკვეთის შექმნა BOG-ში (Simple/Legacy სქემა) ---
         const host = req.headers.host;
         const protocol = req.headers['x-forwarded-proto'] || req.protocol;
         const BASE_URL = `${protocol}://${host}`;
@@ -324,15 +324,13 @@ app.post('/api/submit-order', async (req, res) => {
         console.log('🌐 Base URL for callbacks:', BASE_URL);
 
         // -----------------------------------------------------------
-        // 🛑 ფიქსი: Simple/Legacy სქემის შემოწმება
-        // ამოღებულია items და capture_method. მხოლოდ amount და currency რჩება.
+        // 🛑 ფიქსი: Simple/Legacy სქემა - მხოლოდ amount და currency
+        // ამით ვასწორებთ 400 შეცდომას, რომელიც გამოწვეულია E-commerce სქემის მოთხოვნებით.
         // -----------------------------------------------------------
         const orderPayload = {
-            purchase_units: [{
-                // amount უნდა იყოს GEL-ში (მაგ: 400.00)
-                amount: parseFloat(amountInGEL.toFixed(2)),
-                currency: "GEL",
-            }],
+            // amount უნდა იყოს GEL-ში (მაგ: 400.00)
+            amount: parseFloat(amountInGEL.toFixed(2)),
+            currency: "GEL",
             callback_url: `${BASE_URL}/api/payment-callback`,
             redirect_urls: {
                 success_url: `${BASE_URL}/success?order_id=${dbOrderId}`,
@@ -669,12 +667,13 @@ app.get('/api/health', async (req, res) => {
 
 let adminBot;
 if (ADMIN_BOT_TOKEN) {
-    adminBot = new TelegramBot(ADMIN_BOT_TOKEN, { polling: true });
-    console.log('Admin Bot for product management and Live Chat is running...');
+    // 🛑 ფიქსი: Polling-ის გამორთვა SIGTERM შეცდომის თავიდან ასაცილებლად Railway-ზე
+    adminBot = new TelegramBot(ADMIN_BOT_TOKEN, { polling: false }); 
+    console.log('Admin Bot is running with polling DISABLED to prevent SIGTERM.');
     
-    // ✅ ფიქსი: Telegram Polling Error-ის იგნორირება სერვერის გათიშვის თავიდან ასაცილებლად
+    // Polling Error handler-ი, თუმცა polling გამორთულია
     adminBot.on('polling_error', (error) => {
-        console.error("❌ Telegram Polling Error Caught (Ignored to keep Express server alive):", error.code, error.message);
+        console.error("❌ Telegram Polling Error Caught (Polling is DISABLED):", error.code, error.message);
     });
     
     const mainMenuKeyboard = { keyboard: [[{ text: 'პროდუქტების ნახვა' }], [{ text: 'პროდუქტის დამატება' }], [{ text: 'გაყიდვების მონაცემები' }]], resize_keyboard: true };
