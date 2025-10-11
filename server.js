@@ -1,4 +1,4 @@
-// server.js (სრული ვერსია BOG გადახდით, პროდუქციის მენეჯმენტით და Live Chat-ით)
+// server.js (სრული, გამართული ვერსია BOG-ით, DB-ით და Telegram-ით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -9,7 +9,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const { Pool } = require('pg');
 const { URLSearchParams } = require('url');
-const moment = require('moment'); // საჭიროა sales-data როუტისთვის
+const moment = require('moment'); // *** საჭირო ბიბლიოთეკის დამატება ***
 
 const app = express();
 const port = process.env.PORT || 8080;
@@ -29,10 +29,10 @@ const BOG_CLIENT_SECRET = process.env.BOG_CLIENT_SECRET || 'C9Dbowd9pOVt';
 
 // --- BOG-ის გამართული URL-ები (Quick Payment API v1) ---
 const BOG_BASE_URL = process.env.BOG_BASE_URL || 'https://api.bog.ge';
-const BOG_OAUTH_URL = process.env.BOG_OAUTH_URL || 'https://api.bog.ge/oauth/token'; // სწორი URL Token-ისთვის
-const BOG_PURCHASE_URL = `${BOG_BASE_URL}/api/v1/payment/purchase`; // სწორი URL შეკვეთისთვის
+const BOG_OAUTH_URL = process.env.BOG_OAUTH_URL || 'https://api.bog.ge/oauth/token'; 
+const BOG_PURCHASE_URL = `${BOG_BASE_URL}/api/v1/payment/purchase`; 
 
-// --- კლიენტის BASE URL (საჭიროა success/fail URL-ებისთვის) ---
+// --- კლიენტის BASE URL ---
 const CLIENT_BASE_URL = process.env.CLIENT_BASE_URL || `http://localhost:${port}`; 
 
 
@@ -47,14 +47,48 @@ let adminBot;
 if (ADMIN_BOT_TOKEN) {
     adminBot = new TelegramBot(ADMIN_BOT_TOKEN, { polling: true });
     console.log('Admin Bot for product management and Live Chat is running...');
+} else {
+    console.warn('ADMIN_BOT_TOKEN is missing. Telegram features are disabled.');
 }
 
-// --- DB ინიციალიზაცია ---
+// --- ნაგულისხმევი პროდუქტები (თუ ბაზა ცარიელია) ---
+const defaultProducts = [
+    {
+        name_ge: 'შავი კაბა',
+        name_en: 'Black Dress',
+        price: 150.00,
+        old_price: 200.00,
+        description_ge: 'ელეგანტური შავი კაბა საღამოსთვის.',
+        description_en: 'Elegant black dress for an evening out.',
+        category: 'dresses',
+        gender: 'women',
+        sizes: ['XS', 'S', 'M', 'L'],
+        image_urls: ['https://i.ibb.co/L5rK13b/default-dress.jpg'],
+        qc_image_urls: []
+    },
+    {
+        name_ge: 'ჯინსის ქურთუკი',
+        name_en: 'Denim Jacket',
+        price: 250.00,
+        old_price: null,
+        description_ge: 'კლასიკური ჯინსის ქურთუკი კაცებისთვის.',
+        description_en: 'Classic denim jacket for men.',
+        category: 'jackets',
+        gender: 'men',
+        sizes: ['M', 'L', 'XL'],
+        image_urls: ['https://i.ibb.co/N1pZ5Gz/default-jacket.jpg'],
+        qc_image_urls: []
+    }
+];
+
+// --- DB ინიციალიზაცია და ნაგულისხმევი მონაცემების დამატება ---
 const initializeDatabase = async () => {
+    let client;
     try {
-        const client = await pool.connect();
+        client = await pool.connect();
         console.log('Successfully connected to PostgreSQL database.');
         
+        // 1. Products Table-ის შექმნა
         await client.query(`
             CREATE TABLE IF NOT EXISTS products (
                 id SERIAL PRIMARY KEY,
@@ -71,8 +105,8 @@ const initializeDatabase = async () => {
                 qc_image_urls TEXT[]
             );
         `);
-        console.log('Products table is ready.');
 
+        // 2. Orders Table-ის შექმნა
         await client.query(`
             CREATE TABLE IF NOT EXISTS orders (
                 order_id VARCHAR(50) PRIMARY KEY, 
@@ -84,11 +118,30 @@ const initializeDatabase = async () => {
                 created_at TIMESTAMPTZ DEFAULT NOW()
             );
         `);
-        console.log('Orders table is ready.');
-        client.release();
+        
+        // 3. ნაგულისხმევი პროდუქტების შემოწმება/დამატება
+        const countResult = await client.query('SELECT COUNT(*) FROM products');
+        if (parseInt(countResult.rows[0].count) === 0) {
+            console.log('Products table is empty. Inserting default products...');
+            for (const p of defaultProducts) {
+                await client.query(
+                    `INSERT INTO products (name_ge, name_en, price, old_price, description_ge, description_en, category, gender, sizes, image_urls, qc_image_urls) 
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                    [p.name_ge, p.name_en, p.price, p.old_price, p.description_ge, p.description_en, p.category, p.gender, p.sizes, p.image_urls, p.qc_image_urls]
+                );
+            }
+            console.log('Default products inserted successfully.');
+        }
+
+        console.log('Database initialization complete.');
     } catch (err) {
         console.error('Failed to initialize database:', err);
-        process.exit(1);
+        // კავშირის შეცდომის შემთხვევაში სერვერის გათიშვა
+        process.exit(1); 
+    } finally {
+        if (client) {
+            client.release();
+        }
     }
 };
 
@@ -183,7 +236,7 @@ app.get('/api/products', async (req, res) => {
         res.json(products);
     } catch (err) {
         console.error('API /api/products error:', err);
-        res.status(500).json({ success: false, message: 'Could not fetch products' });
+        res.status(500).json({ success: false, message: 'Could not fetch products from database' });
     }
 });
 
@@ -193,7 +246,6 @@ app.post('/api/submit-order', async (req, res) => {
     const { customer, items, totalPrice } = orderData;
     const amount = totalPrice;
     
-    // შეკვეთის უნიკალური ID შექმნა
     const dbOrderId = `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`.toUpperCase();
     
     // 1. შეკვეთის შენახვა ბაზაში (payment_pending სტატუსით)
@@ -213,7 +265,6 @@ app.post('/api/submit-order', async (req, res) => {
         const token = await getBogAccessToken();
         
         // --- 3. შეკვეთის შექმნა BOG-ში ---
-        // იყენებს CLIENT_BASE_URL-ს (სრული დომენი)
         const orderPayload = {
             'amount': parseFloat(amount),
             'currency': 'GEL',
@@ -221,14 +272,14 @@ app.post('/api/submit-order', async (req, res) => {
             'description': `შეკვეთა: ${dbOrderId}`,
             'successUrl': `${CLIENT_BASE_URL}/success?order_id=${dbOrderId}`,
             'failUrl': `${CLIENT_BASE_URL}/fail?order_id=${dbOrderId}`,
-            'callbackUrl': `${CLIENT_BASE_URL}/api/payment-callback`, // ეს უნდა იყოს გარედან მისაწვდომი URL
+            'callbackUrl': `${CLIENT_BASE_URL}/api/payment-callback`,
             'locale': 'ka',
             'preAuth': false
         };
 
         const orderResponse = await axios.post(BOG_PURCHASE_URL, orderPayload, {
             headers: {
-                'Authorization': `Bearer ${token}`, // გამოიყენება Bearer Token-ი
+                'Authorization': `Bearer ${token}`, 
                 'Content-Type': 'application/json',
                 'Accept-Language': 'ka'
             },
@@ -260,19 +311,21 @@ app.post('/api/submit-order', async (req, res) => {
         console.error('BOG Payment Submission Error:', error.response?.data || error.message);
         await pool.query('DELETE FROM orders WHERE order_id = $1', [dbOrderId]); 
         
+        // აბრუნებს გამართულ შეცდომას
         res.status(500).json({
             success: false,
             error: 'Order submission failed',
-            details: error.response?.data || error.message
+            details: error.response?.data || error.message,
+            message: 'Order submission failed. Please try again later.' 
         });
     }
 });
 
 
-// --- 3. BOG Callback / Webhook Endpoint (განახლებული) ---
+// --- 3. BOG Callback / Webhook Endpoint ---
 app.post('/api/payment-callback', async (req, res) => {
     try {
-        const { extPaymentId, paymentStatus } = req.body; // BOG-ის Callback-ის სტრუქტურა
+        const { extPaymentId, paymentStatus } = req.body; 
 
         if (!extPaymentId || !paymentStatus) return res.status(400).send('Missing BOG data');
 
@@ -329,15 +382,15 @@ ${itemsList}
 
 
 // ===============================================
-// --- Telegram Bot Setup & Handlers (თქვენი კოდი) ---
+// --- Telegram Bot Setup & Handlers ---
 // ===============================================
 
 if (adminBot) {
-    // აქ გრძელდება Telegram Bot-ის ლოგიკა, რომელიც თქვენ უკვე მოგვაწოდეთ
     const mainMenuKeyboard = { keyboard: [[{ text: 'პროდუქტების ნახვა' }], [{ text: 'პროდუქტის დამატება' }], [{ text: 'გაყიდვების მონაცემები' }]], resize_keyboard: true };
     const salesKeyboard = { keyboard: [[{ text: '/sales 3' }, { text: '/recent 5' }], [{ text: 'მთავარი მენიუ' }]], resize_keyboard: true };
     const resetState = (chatId) => delete userState[chatId];
     
+    // *** გამართული /start ბრძანება ***
     adminBot.onText(/\/start/, (msg) => {
         resetState(msg.chat.id);
         adminBot.sendMessage(msg.chat.id, 'მოგესალმებით! აირჩიეთ მოქმედება:', { reply_markup: mainMenuKeyboard });
@@ -353,7 +406,6 @@ if (adminBot) {
         const months = match[1] || 3; 
         
         try {
-            // გამოიყენეთ შიდა ენდპოინტი
             const response = await axios.get(`http://localhost:${port}/api/admin/sales-data?months=${months}`);
             const data = response.data;
 
@@ -414,7 +466,6 @@ ${salesList}
         }
     });
 
-    // ... (პროდუქტების ნახვა / მართვის ლოგიკა - თქვენი კოდი)
     adminBot.onText(/პროდუქტების ნახვა/, (msg) => {
         const chatId = msg.chat.id;
         resetState(chatId);
@@ -652,7 +703,7 @@ ${salesList}
 }
 
 // ===============================================
-// --- Live Chat Endpoints (თქვენი კოდი) ---
+// --- Live Chat Endpoints ---
 // ===============================================
 
 app.post('/api/live-chat', (req, res) => {
@@ -705,7 +756,7 @@ app.get('/api/chat-response/:sessionId', (req, res) => {
 });
 
 // ===============================================
-// --- Other Utility Endpoints (თქვენი კოდი) ---
+// --- Other Utility Endpoints ---
 // ===============================================
 
 app.get('/api/orders', async (req, res) => {
@@ -722,6 +773,7 @@ app.post('/api/visitor', async (req, res) => {
     if (!adminBot || !TELEGRAM_CHANNEL_ID) {
         return res.status(200).json({ success: true, message: 'Visitor noted, but notifications are disabled.' });
     }
+
     const ip = req.ip;
     let message = `👤 *ახალი ვიზიტორი საიტზე*\n\n- *IP მისამართი:* \`${ip}\``;
     try {
@@ -796,7 +848,8 @@ app.get('/api/order-status/:orderId', async (req, res) => {
 app.get('/api/admin/sales-data', async (req, res) => {
     try {
         const { months = 3 } = req.query;
-        const dateThreshold = moment().subtract(parseInt(months), 'months').toDate(); // იყენებს moment-ს
+        // moment-ის გამოყენება თარიღის სწორად გაანგარიშებისთვის
+        const dateThreshold = moment().subtract(parseInt(months), 'months').toDate(); 
 
         const revenueResult = await pool.query(
             'SELECT SUM(total_price) as total_revenue FROM orders WHERE created_at >= $1 AND status = $2',
@@ -838,6 +891,7 @@ initializeDatabase().then(() => {
         console.log(`BOG Payment system integrated`);
     });
 }).catch(err => {
+    // ეს შეცდომა გამოჩნდება მხოლოდ DB-სთან კავშირის კრიტიკული პრობლემის შემთხვევაში.
     console.error('FATAL ERROR: Server failed to start due to database initialization failure.', err);
     process.exit(1);
 });
