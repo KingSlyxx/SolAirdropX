@@ -59,7 +59,7 @@ const initializeDatabase = async () => {
         await client.query(`
             CREATE TABLE IF NOT EXISTS orders (
                 order_id VARCHAR(50) PRIMARY KEY, 
-                bog_order_id VARCHAR(50) UNIQUE,  
+                bog_order_id VARCHAR(100) UNIQUE,  
                 customer_data JSONB,
                 items JSONB,
                 total_price NUMERIC(10, 2),
@@ -68,6 +68,19 @@ const initializeDatabase = async () => {
             );
         `);
         console.log('Orders table is ready.');
+        
+        // შეამოწმეთ და განაახლეთ არსებული ცხრილის სტრუქტურა საჭიროების შემთხვევაში
+        try {
+            await client.query(`
+                ALTER TABLE orders 
+                ALTER COLUMN order_id TYPE VARCHAR(50),
+                ALTER COLUMN bog_order_id TYPE VARCHAR(100);
+            `);
+            console.log('Orders table structure updated successfully.');
+        } catch (alterError) {
+            console.log('Orders table structure is already correct or cannot be altered:', alterError.message);
+        }
+        
         client.release();
     } catch (err) {
         console.error('Failed to initialize database:', err);
@@ -99,6 +112,13 @@ const formatProductFromDb = (dbRow) => ({
     imageUrls: dbRow.image_urls || [],
     qcImageUrls: dbRow.qc_image_urls || [],
 });
+
+// განაახლეთ order ID გენერაცია უფრო მოკლე ფორმატში
+const generateOrderId = () => {
+    const timestamp = Date.now().toString();
+    const random = Math.random().toString(36).substr(2, 5);
+    return `ORD_${timestamp.slice(-10)}_${random}`.toUpperCase();
+};
 
 const createEditKeyboard = (productId) => ({
     inline_keyboard: [
@@ -132,7 +152,6 @@ const testBogConnection = async () => {
     try {
         console.log('🔧 Testing BOG API connection...');
         
-        // შეამოწმეთ კრედენციალები
         if (!BOG_CLIENT_ID || !BOG_CLIENT_SECRET) {
             console.log('❌ BOG credentials missing');
             return {
@@ -172,7 +191,6 @@ const testBogConnection = async () => {
         }
     } catch (error) {
         console.error('❌ BOG API connection test: FAILED -', error.message);
-        console.log('💡 Please check your BOG credentials and network connectivity');
         return {
             success: false,
             message: error.message,
@@ -223,7 +241,8 @@ app.post('/api/submit-order', async (req, res) => {
     const { customer, items, totalPrice } = orderData;
     const amount = totalPrice;
     
-    const dbOrderId = `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`.toUpperCase();
+    // გამოიყენეთ ახალი order ID გენერაცია
+    const dbOrderId = generateOrderId();
     console.log('🆔 Generated order ID:', dbOrderId);
 
     // 1. შეკვეთის შენახვა ბაზაში (payment_pending სტატუსით)
@@ -238,7 +257,8 @@ app.post('/api/submit-order', async (req, res) => {
         return res.status(500).json({ 
             success: false, 
             error: 'Failed to save order to database',
-            order_id: dbOrderId
+            order_id: dbOrderId,
+            db_error: dbError.message
         });
     }
 
