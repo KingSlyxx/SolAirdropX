@@ -1,4 +1,4 @@
-// server.js (სრული ვერსია BOG გადახდით, პროდუქციის მენეჯმენტით და Live Chat-ით)
+// server.js (განახლებული ვერსია BOG გადახდის ფიქსებით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -21,8 +21,8 @@ const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
 const DATABASE_URL = process.env.DATABASE_URL;
 
 // --- BOG Payment Credentials ---
-const BOG_CLIENT_ID = process.env.BOG_CLIENT_ID || '10001710';
-const BOG_CLIENT_SECRET = process.env.BOG_CLIENT_SECRET || 'C9Dbowd9pOVt';
+const BOG_CLIENT_ID = process.env.BOG_CLIENT_ID;
+const BOG_CLIENT_SECRET = process.env.BOG_CLIENT_SECRET;
 const BOG_TOKEN_URL = 'https://oauth2.bog.ge/auth/realms/bog/protocol/openid-connect/token';
 const BOG_ORDER_URL = 'https://api.bog.ge/payments/v1/checkout';
 
@@ -78,7 +78,8 @@ const initializeDatabase = async () => {
 // --- Middleware ---
 app.use(cors());
 app.use(express.static('public'));
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 app.set('trust proxy', true);
 
 // --- Global State for Telegram Bot ---
@@ -284,12 +285,7 @@ app.post('/api/submit-order', async (req, res) => {
             }
         };
 
-        console.log('🔄 Sending order to BOG API:', {
-            amount: orderPayload.amount,
-            currency: orderPayload.currency,
-            items_count: orderPayload.items.length,
-            callback_url: orderPayload.callback_url
-        });
+        console.log('🔄 Sending order to BOG API:', JSON.stringify(orderPayload, null, 2));
 
         const orderResponse = await axios.post(BOG_ORDER_URL, orderPayload, {
             headers: {
@@ -300,7 +296,7 @@ app.post('/api/submit-order', async (req, res) => {
         });
 
         console.log('📨 BOG order creation response status:', orderResponse.status);
-        console.log('📨 BOG order creation response data:', orderResponse.data);
+        console.log('📨 BOG order creation response data:', JSON.stringify(orderResponse.data, null, 2));
 
         const bogOrderId = orderResponse.data.order_id;
         const paymentLink = orderResponse.data._links?.redirect?.href || 
@@ -337,7 +333,7 @@ app.post('/api/submit-order', async (req, res) => {
         
         if (error.response) {
             console.error('Response status:', error.response.status);
-            console.error('Response data:', error.response.data);
+            console.error('Response data:', JSON.stringify(error.response.data, null, 2));
             console.error('Response headers:', error.response.headers);
         } else if (error.request) {
             console.error('No response received. Request details:', error.request);
@@ -353,22 +349,13 @@ app.post('/api/submit-order', async (req, res) => {
             console.error('❌ Failed to update order status:', updateError);
         }
 
-        // გაუგზავნეთ დეტალური პასუხი
+        // დეტალური error response
         const errorResponse = {
             success: false,
-            error: 'Order submission failed',
+            error: 'Order submission failed. Please try again later.',
             order_id: dbOrderId,
             details: error.response?.data || error.message
         };
-
-        // დამატებითი debug ინფორმაცია development-ისთვის
-        if (process.env.NODE_ENV === 'development') {
-            errorResponse.debug = {
-                bog_client_id: BOG_CLIENT_ID.substring(0, 5) + '...',
-                bog_api_url: BOG_ORDER_URL,
-                error_type: error.response ? 'API Error' : 'Network Error'
-            };
-        }
 
         res.status(500).json(errorResponse);
     }
@@ -556,7 +543,7 @@ if (ADMIN_BOT_TOKEN) {
         const months = match[1] || 3; 
         
         try {
-            const response = await axios.get(`http://localhost:${port}/api/admin/sales-data?months=${months}`);
+            const response = await axios.get(`https://${req.headers.host}/api/admin/sales-data?months=${months}`);
             const data = response.data;
 
             const message = `
