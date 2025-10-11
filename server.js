@@ -1,4 +1,4 @@
-// server.js (საბოლოო, სრული და გამოსწორებული კოდი)
+// server.js (საბოლოო, სრული და გამოსწორებული კოდი BOG Legacy/Simple Payload-ით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -466,7 +466,7 @@ app.post('/api/payment-callback', async (req, res) => {
             if (newStatus === 'paid') {
                  message = `✅ **გადახდა დადასტურდა!**\n\n*შეკვეთის ID:* ${dbOrderId}\n*BOG ID:* \`${bogOrderId}\``;
             } else if (newStatus === 'payment_failed' || newStatus === 'canceled') {
-                 message = `❌ **გადახდა ${newStatus}**\n\n*შეკვეთის ID:* ${dbOrderId}\n*BOG ID:* \`${bogOrderId}\``;
+                 message = `❌ **გადახდა ${newStatus === 'canceled' ? 'გაუქმდა' : 'წარუმატებელია'}**\n\n*შეკვეთის ID:* ${dbOrderId}\n*BOG ID:* \`${bogOrderId}\``;
             }
 
             if (message) {
@@ -885,8 +885,14 @@ ${salesList}
                 const sessionId = sessionIdMatch[1];
                 const session = chatSessions.get(sessionId);
                 if (session) {
+                    // Telegram-ის პასუხის გაგზავნა მომხმარებლისთვის
                     session.pendingMessages.push(msg.text);
                     chatSessions.set(sessionId, session);
+
+                    // ადმინისთვის შეტყობინება, რომ პასუხი გაიგზავნა
+                    if (msg.chat.id.toString() === TELEGRAM_GROUP_ID) {
+                        adminBot.sendMessage(msg.chat.id, `✅ პასუხი გაიგზავნა მომხმარებელთან (Session ID: ${sessionId}).`);
+                    }
                     return; 
                 }
             }
@@ -1028,10 +1034,20 @@ app.post('/api/live-chat', (req, res) => {
 📧 *ელ.ფოსტა:* ${userData.email}
 ${userData.orderId ? `🔢 *შეკვეთის N:* ${userData.orderId}` : ''}
 ---
+*პირველი შეტყობინება:* ${message}
 [Session ID: ${sessionId}]
             `;
-            adminBot.sendMessage(TELEGRAM_GROUP_ID, notification, { parse_mode: 'Markdown' })
-                .catch(err => console.error("Failed to send new chat notification to group:", err.message));
+            // 🛑 ფიქსი: Reply Keyboard-ის დამატება
+            adminBot.sendMessage(TELEGRAM_GROUP_ID, notification, { 
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: "✅ უპასუხე (Reply)", callback_data: `reply_to_${sessionId}` }]
+                    ]
+                }
+            })
+            .catch(err => console.error("Failed to send new chat notification to group:", err.message));
+
         }
     } else {
         const session = chatSessions.get(sessionId);
@@ -1042,8 +1058,16 @@ ${userData.orderId ? `🔢 *შეკვეთის N:* ${userData.orderId}` : 
 ---
 [Session ID: ${sessionId}]
             `;
-            adminBot.sendMessage(TELEGRAM_GROUP_ID, userMessage, { parse_mode: 'Markdown' })
-                .catch(err => console.error("Failed to forward user message to group:", err.message));
+             // 🛑 ფიქსი: Reply Keyboard-ის დამატება ყოველ შეტყობინებაზე
+            adminBot.sendMessage(TELEGRAM_GROUP_ID, userMessage, { 
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: "✅ უპასუხე (Reply)", callback_data: `reply_to_${sessionId}` }]
+                    ]
+                }
+            })
+            .catch(err => console.error("Failed to forward user message to group:", err.message));
         }
     }
     res.status(200).json({ success: true });
