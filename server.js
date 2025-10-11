@@ -1,4 +1,4 @@
-// server.js (სრული, ერთიანი კოდი BOG გადახდის კრიტიკული შესწორებებით და მუდმივი ტოკენებით)
+// server.js (სრული კოდი BOG გადახდის სისტემით და მაქსიმალური დიაგნოსტიკით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -14,7 +14,6 @@ const app = express();
 const port = process.env.PORT || 8080;
 
 // --- გარემოს ცვლადები ---
-// **გთხოვთ, შეამოწმოთ, რომ ეს ცვლადები სწორად არის დაყენებული თქვენს გარემოში**
 const ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN || '8151755873:AAEBrslgbP49Q3FiTSKAm7fyQchNbUMVSe0';
 const TELEGRAM_CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID; 
 const TELEGRAM_GROUP_ID = process.env.TELEGRAM_GROUP_ID || '-4644402426'; 
@@ -22,7 +21,7 @@ const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
 const DATABASE_URL = process.env.DATABASE_URL;
 
 // --- BOG Payment Credentials (ფიქსირებული მნიშვნელობები ტესტირებისთვის) ---
-// **გამოიყენება თქვენს მიერ მოწოდებული ტოკენები**
+// თქვენი მოთხოვნის შესაბამისად, hardcoded values
 const BOG_CLIENT_ID = '10001710'; 
 const BOG_CLIENT_SECRET = 'C9Dbowd9pOVt';
 const BOG_TOKEN_URL = 'https://oauth2.bog.ge/auth/realms/bog/protocol/openid-connect/token';
@@ -86,7 +85,7 @@ app.set('trust proxy', true);
 const userState = {};
 const chatSessions = new Map();
 
-// --- Helper Functions (გამოყენებულია Telegram-ში) ---
+// --- Helper Functions ---
 const formatProductFromDb = (dbRow) => ({
     id: dbRow.id,
     name: { ge: dbRow.name_ge, en: dbRow.name_en },
@@ -143,7 +142,7 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
-// --- 2. შეკვეთის გაგზავნა და BOG გადახდის ინიციალიზაცია (კრიტიკული შესწორებებით) ---
+// --- 2. შეკვეთის გაგზავნა და BOG გადახდის ინიციალიზაცია (ორფაზიანი დიაგნოსტიკით) ---
 app.post('/api/submit-order', async (req, res) => {
     const orderData = req.body;
     const { customer, items, totalPrice } = orderData;
@@ -155,7 +154,8 @@ app.post('/api/submit-order', async (req, res) => {
     }
 
     const dbOrderId = `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`.toUpperCase();
-    
+    let token;
+
     // 1. შეკვეთის შენახვა ბაზაში
     try {
         await pool.query(
@@ -167,13 +167,14 @@ app.post('/api/submit-order', async (req, res) => {
         return res.status(500).json({ success: false, error: 'Failed to save order to database' });
     }
 
+    // ===================================
+    // PHASE 1: TOKEN GENERATION
+    // ===================================
     try {
-        // --- 2. BOG Token მიღება (კრიტიკული შესწორება: URLSearchParams.toString()) ---
+        console.log('--- PHASE 1: Token Generation initiated ---');
         const tokenData = new URLSearchParams({
             'grant_type': 'client_credentials'
         });
-
-        console.log('--- BOG Token Request initiated (Hardcoded Credentials) ---');
         
         const tokenResponse = await axios.post(BOG_TOKEN_URL, tokenData.toString(), {
             auth: {
@@ -181,26 +182,47 @@ app.post('/api/submit-order', async (req, res) => {
                 password: BOG_CLIENT_SECRET
             },
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded' // აუცილებელია
+                'Content-Type': 'application/x-www-form-urlencoded' 
             },
-            timeout: 30000
+            timeout: 10000 
         });
 
-        const token = tokenResponse.data.access_token;
+        token = tokenResponse.data.access_token;
         if (!token) {
-            console.error('BOG Token Error: Token field is missing in response.', tokenResponse.data);
             throw new Error('Failed to get BOG access token (Token field missing)');
         }
-        console.log(`BOG Token received successfully. Length: ${token.length}`);
+        console.log(`✅ PHASE 1 SUCCESS: BOG Token received (Length: ${token.length})`);
 
+    } catch (error) {
+        // !!! ეს ბლოკი აფიქსირებს პრობლემას BOG-ის ავტორიზაციაში (401 error) !!!
+        console.error('================================================================');
+        console.error(`!!! PHASE 1 ERROR: BOG Token Generation Failed for Order ${dbOrderId} !!!`);
+        if (error.response) {
+            console.error(`Status: ${error.response.status}`);
+            console.error('BOG Response Data (Error):', JSON.stringify(error.response.data, null, 2));
+        } else {
+            console.error('Error Message:', error.message);
+        }
+        console.error('================================================================');
+        await pool.query('UPDATE orders SET status = $1 WHERE order_id = $2', ['token_generation_failed', dbOrderId]); 
+        
+        return res.status(500).json({
+            success: false,
+            error: 'Order submission failed (Auth Error). Please check credentials.',
+            details: error.response?.data || error.message
+        });
+    }
 
-        // --- 3. შეკვეთის შექმნა BOG-ში (კრიტიკული შესწორება: HTTPS/x-forwarded-proto) ---
+    // ===================================
+    // PHASE 2: ORDER CREATION
+    // ===================================
+    try {
+        console.log('--- PHASE 2: Order Creation initiated ---');
         const host = req.headers.host;
+        // უზრუნველყოფს HTTPS-ის სწორად გამოყენებას, თუ პროქსის მიღმა მუშაობთ
         const protocol = req.header('x-forwarded-proto') || req.protocol; 
         const BASE_URL = `${protocol}://${host}`;
         
-        console.log(`BASE_URL for redirection: ${BASE_URL} (Check for 'https'!)`);
-
         const orderPayload = {
             'intent': 'CAPTURE',
             'purchase_units': [
@@ -218,6 +240,8 @@ app.post('/api/submit-order', async (req, res) => {
                 'callback_url': `${BASE_URL}/api/payment-callback` 
             }
         };
+        
+        console.log('BOG Order Payload:', JSON.stringify(orderPayload, null, 2));
 
         const orderResponse = await axios.post(BOG_ORDER_URL, orderPayload, {
             headers: {
@@ -233,49 +257,40 @@ app.post('/api/submit-order', async (req, res) => {
         const paymentLink = orderResponse.data._links && orderResponse.data._links.redirect ? orderResponse.data._links.redirect.href : null;
 
         if (paymentLink && bogOrderId) {
-            // 4. BOG ID-ის შენახვა ბაზაში
             await pool.query(
                 'UPDATE orders SET bog_order_id = $1 WHERE order_id = $2',
                 [bogOrderId, dbOrderId]
             );
 
-            console.log(`BOG Order successful. Redirect Link: ${paymentLink}`);
-
-            // წარმატებული პასუხი გადამისამართების ლინკით
+            console.log(`✅ PHASE 2 SUCCESS: Redirect Link: ${paymentLink}`);
             res.json({ 
                 success: true, 
                 redirect_url: paymentLink,
                 order_id: dbOrderId
             });
         } else {
-            console.error('BOG Order Creation FAILED. Full Response Data:', JSON.stringify(orderResponse.data, null, 2));
+            console.error('BOG Order Creation FAILED. Redirect link or BOG ID missing. Full Response Data:', JSON.stringify(orderResponse.data, null, 2));
             throw new Error('Failed to get payment redirect URL or BOG Order ID from BOG');
         }
 
     } catch (error) {
-        // --- შეცდომის დეტალური ლოგირება ---
+        // !!! ეს ბლოკი აფიქსირებს პრობლემას შეკვეთის მონაცემებში (400 error) !!!
         console.error('================================================================');
-        console.error(`!!! BOG Payment Submission Error for Order ${dbOrderId} !!!`);
+        console.error(`!!! PHASE 2 ERROR: BOG Order Creation Failed for Order ${dbOrderId} !!!`);
         
         if (error.response) {
-            // 1. HTTP 4xx ან 5xx შეცდომა BOG-ის მხრიდან
             console.error(`Status: ${error.response.status}`);
             console.error('BOG Response Data (Error):', JSON.stringify(error.response.data, null, 2));
-        } else if (error.request) {
-            // 2. მოთხოვნა გაიგზავნა, მაგრამ პასუხი არ მოვიდა (Timeout ან Network Error)
-            console.error('Request Error: No response received from BOG API (Timeout or Network)');
-            console.error('Error Message:', error.message);
         } else {
-            // 3. ლოკალური შეცდომა
-            console.error('Local Error Message:', error.message);
+            console.error('Error Message:', error.message);
         }
         console.error('================================================================');
         
-        await pool.query('UPDATE orders SET status = $1 WHERE order_id = $2', ['payment_init_failed', dbOrderId]); 
+        await pool.query('UPDATE orders SET status = $1 WHERE order_id = $2', ['order_creation_failed', dbOrderId]); 
         
         res.status(500).json({
             success: false,
-            error: 'Order submission failed. Please try again later.',
+            error: 'Order submission failed. (BOG API Error)',
             details: error.response?.data || error.message
         });
     }
@@ -551,7 +566,6 @@ ${salesList}
                 const sessionId = sessionIdMatch[1];
                 const session = chatSessions.get(sessionId);
                 if (session) {
-                    // Send message to the user via chat endpoint
                     session.pendingMessages.push(msg.text);
                     chatSessions.set(sessionId, session);
                     adminBot.sendMessage(chatId, `✅ პასუხი გაიგზავნა Session ID: ${sessionId}-ზე.`, { reply_to_message_id: msg.message_id });
@@ -801,7 +815,6 @@ app.get('/api/order-status/:orderId', async (req, res) => {
     }
 });
 
-// Admin dashboard endpoint
 app.get('/api/admin/sales-data', async (req, res) => {
     try {
         const { months = 3 } = req.query;
@@ -837,6 +850,7 @@ app.get('/api/admin/sales-data', async (req, res) => {
         res.status(500).json({ success: false, message: 'Failed to fetch sales data' });
     }
 });
+
 
 // ===============================================
 // --- სერვერის გაშვება ---
