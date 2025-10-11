@@ -131,6 +131,17 @@ const fieldPrompts = {
 const testBogConnection = async () => {
     try {
         console.log('🔧 Testing BOG API connection...');
+        
+        // შეამოწმეთ კრედენციალები
+        if (!BOG_CLIENT_ID || !BOG_CLIENT_SECRET) {
+            console.log('❌ BOG credentials missing');
+            return {
+                success: false,
+                message: 'BOG credentials are missing',
+                credentials_configured: false
+            };
+        }
+
         const tokenData = new URLSearchParams({
             'grant_type': 'client_credentials',
             'client_id': BOG_CLIENT_ID,
@@ -147,14 +158,16 @@ const testBogConnection = async () => {
             return {
                 success: true,
                 message: 'BOG connection successful',
-                token_received: true
+                token_received: true,
+                credentials_configured: true
             };
         } else {
             console.log('❌ BOG API connection test: FAILED - no token received');
             return {
                 success: false,
                 message: 'No access token received from BOG',
-                token_received: false
+                token_received: false,
+                credentials_configured: true
             };
         }
     } catch (error) {
@@ -164,6 +177,7 @@ const testBogConnection = async () => {
             success: false,
             message: error.message,
             token_received: false,
+            credentials_configured: !!(BOG_CLIENT_ID && BOG_CLIENT_SECRET),
             error_details: error.response?.data || error.code
         };
     }
@@ -183,8 +197,10 @@ app.get('/', (req, res) => {
             submit_order: '/api/submit-order',
             test_bog: '/api/test-bog',
             orders: '/api/orders',
-            admin_sales: '/api/admin/sales-data'
-        }
+            admin_sales: '/api/admin/sales-data',
+            health: '/api/health'
+        },
+        bog_configured: !!(BOG_CLIENT_ID && BOG_CLIENT_SECRET)
     });
 });
 
@@ -229,11 +245,16 @@ app.post('/api/submit-order', async (req, res) => {
     try {
         // --- 2. BOG Token მიღება ---
         console.log('🔑 Requesting BOG access token...');
+        
+        // შეამოწმეთ კრედენციალები
+        if (!BOG_CLIENT_ID || !BOG_CLIENT_SECRET) {
+            throw new Error('BOG credentials are not configured');
+        }
+
         const tokenData = new URLSearchParams({
             'grant_type': 'client_credentials',
             'client_id': BOG_CLIENT_ID,
-            'client_secret': BOG_CLIENT_SECRET,
-            'scope': 'checkout.payment'
+            'client_secret': BOG_CLIENT_SECRET
         });
 
         console.log('🔐 Using BOG credentials:', {
@@ -265,16 +286,19 @@ app.post('/api/submit-order', async (req, res) => {
 
         console.log('🌐 Base URL for callbacks:', BASE_URL);
 
+        // გაასწორეთ items სტრუქტურა BOG-ის მოთხოვნების შესაბამისად
+        const bogItems = items.map(item => ({
+            name: item.name?.ge || item.name || 'Product',
+            quantity: 1,
+            price: parseFloat(item.price),
+            total_price: parseFloat(item.price)
+        }));
+
         const orderPayload = {
             amount: parseFloat(amount),
             currency: "GEL",
             capture_method: "AUTO",
-            items: items.map(item => ({
-                name: item.name.ge,
-                quantity: 1,
-                price: parseFloat(item.price),
-                total_price: parseFloat(item.price)
-            })),
+            items: bogItems,
             callback_url: `${BASE_URL}/api/payment-callback`,
             redirect_urls: {
                 success_url: `${BASE_URL}/success?order_id=${dbOrderId}`,
@@ -290,7 +314,8 @@ app.post('/api/submit-order', async (req, res) => {
         const orderResponse = await axios.post(BOG_ORDER_URL, orderPayload, {
             headers: {
                 'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
             },
             timeout: 20000
         });
@@ -298,10 +323,12 @@ app.post('/api/submit-order', async (req, res) => {
         console.log('📨 BOG order creation response status:', orderResponse.status);
         console.log('📨 BOG order creation response data:', JSON.stringify(orderResponse.data, null, 2));
 
+        // გაასწორეთ პასუხის დამუშავება
         const bogOrderId = orderResponse.data.order_id;
         const paymentLink = orderResponse.data._links?.redirect?.href || 
                           orderResponse.data.links?.payment_url ||
-                          orderResponse.data.redirect_url;
+                          orderResponse.data.redirect_url ||
+                          orderResponse.data.payment_url;
 
         console.log('🔗 Extracted payment link:', paymentLink);
         console.log('🆔 BOG Order ID:', bogOrderId);
@@ -318,7 +345,8 @@ app.post('/api/submit-order', async (req, res) => {
             res.json({ 
                 success: true, 
                 redirect_url: paymentLink,
-                order_id: dbOrderId
+                order_id: dbOrderId,
+                bog_order_id: bogOrderId
             });
         } else {
             console.error('❌ Missing payment link or BOG Order ID in response');
@@ -336,7 +364,7 @@ app.post('/api/submit-order', async (req, res) => {
             console.error('Response data:', JSON.stringify(error.response.data, null, 2));
             console.error('Response headers:', error.response.headers);
         } else if (error.request) {
-            console.error('No response received. Request details:', error.request);
+            console.error('No response received. Request details:', error.request._currentUrl || error.request);
         }
         
         console.error('Stack trace:', error.stack);
@@ -354,7 +382,8 @@ app.post('/api/submit-order', async (req, res) => {
             success: false,
             error: 'Order submission failed. Please try again later.',
             order_id: dbOrderId,
-            details: error.response?.data || error.message
+            details: error.response?.data || error.message,
+            credentials_configured: !!(BOG_CLIENT_ID && BOG_CLIENT_SECRET)
         };
 
         res.status(500).json(errorResponse);
@@ -366,14 +395,19 @@ app.post('/api/payment-callback', async (req, res) => {
     try {
         const { order_id, status } = req.body;
         
-        if (!order_id) return res.status(400).send('Missing BOG Order ID');
+        console.log('🔄 Received BOG callback:', { order_id, status });
+        
+        if (!order_id) {
+            console.error('❌ Missing BOG Order ID in callback');
+            return res.status(400).send('Missing BOG Order ID');
+        }
 
         // 1. შეკვეთის მოძიება BOG ID-ის გამოყენებით
         const orderResult = await pool.query('SELECT order_id FROM orders WHERE bog_order_id = $1', [order_id]);
         const order = orderResult.rows.length > 0 ? orderResult.rows[0] : null;
 
         if (!order) {
-             console.error(`Callback received for unknown BOG Order ID: ${order_id}`);
+             console.error(`❌ Callback received for unknown BOG Order ID: ${order_id}`);
              return res.status(200).send('Order ID not found in DB');
         }
         
@@ -387,6 +421,8 @@ app.post('/api/payment-callback', async (req, res) => {
         } else if (status === 'canceled') {
             newStatus = 'canceled';
         }
+
+        console.log(`🔄 Updating order ${dbOrderId} status to: ${newStatus}`);
 
         // 2. შეკვეთის სტატუსის განახლება
         await pool.query(
@@ -404,13 +440,14 @@ app.post('/api/payment-callback', async (req, res) => {
             }
 
             if (message) {
-                 await adminBot.sendMessage(TELEGRAM_GROUP_ID, message, { parse_mode: 'Markdown' });
+                 await adminBot.sendMessage(TELEGRAM_GROUP_ID, message, { parse_mode: 'Markdown' })
+                    .catch(err => console.error('Failed to send Telegram notification:', err));
             }
         }
         
-        res.status(200).json({ success: true });
+        res.status(200).json({ success: true, status: newStatus });
     } catch (error) {
-        console.error('Payment callback error:', error);
+        console.error('❌ Payment callback error:', error);
         res.status(500).json({ success: false, error: 'Callback processing failed' });
     }
 });
@@ -419,20 +456,59 @@ app.post('/api/payment-callback', async (req, res) => {
 app.get('/success', async (req, res) => {
     const { order_id } = req.query;
     
+    console.log('✅ Payment success page accessed for order:', order_id);
+    
     if (order_id) {
-        await pool.query(
-            'UPDATE orders SET status = $1 WHERE order_id = $2',
-            ['paid', order_id]
-        );
+        try {
+            await pool.query(
+                'UPDATE orders SET status = $1 WHERE order_id = $2',
+                ['paid', order_id]
+            );
+            console.log(`✅ Order ${order_id} status updated to paid`);
+        } catch (error) {
+            console.error('❌ Error updating order status:', error);
+        }
     }
     
     res.send(`
         <html>
-            <head><title>გადახდა წარმატებულია</title></head>
-            <body style="display: flex; justify-content: center; align-items: center; height: 100vh; font-family: Arial, sans-serif;">
-                <div style="text-align: center;">
-                    <h1 style="color: green;">✅ გადახდა წარმატებულია!</h1>
-                    <p>გმადლობთ შეკვეთისთვის. თქვენი შეკვეთის ID: <strong>${order_id || 'Unknown'}</strong></p>
+            <head>
+                <title>გადახდა წარმატებულია</title>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <style>
+                    body { 
+                        font-family: Arial, sans-serif; 
+                        display: flex; 
+                        justify-content: center; 
+                        align-items: center; 
+                        height: 100vh; 
+                        margin: 0; 
+                        background-color: #f5f5f5;
+                    }
+                    .container { 
+                        text-align: center; 
+                        background: white; 
+                        padding: 40px; 
+                        border-radius: 10px; 
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                        max-width: 400px;
+                    }
+                    h1 { color: green; margin-bottom: 20px; }
+                    p { margin: 10px 0; color: #333; }
+                    a { 
+                        color: #007bff; 
+                        text-decoration: none; 
+                        font-weight: bold; 
+                    }
+                    a:hover { text-decoration: underline; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>✅ გადახდა წარმატებულია!</h1>
+                    <p>გმადლობთ შეკვეთისთვის.</p>
+                    <p>თქვენი შეკვეთის ID: <strong>${order_id || 'Unknown'}</strong></p>
                     <p>შეკვეთის სტატუსის შესამოწმებლად გადადით <a href="/">მთავარ გვერდზე</a>.</p>
                 </div>
             </body>
@@ -444,20 +520,59 @@ app.get('/success', async (req, res) => {
 app.get('/fail', async (req, res) => {
     const { order_id } = req.query;
     
+    console.log('❌ Payment failure page accessed for order:', order_id);
+    
     if (order_id) {
-        await pool.query(
-            'UPDATE orders SET status = $1 WHERE order_id = $2',
-            ['failed', order_id]
-        );
+        try {
+            await pool.query(
+                'UPDATE orders SET status = $1 WHERE order_id = $2',
+                ['failed', order_id]
+            );
+            console.log(`🔄 Order ${order_id} status updated to failed`);
+        } catch (error) {
+            console.error('❌ Error updating order status:', error);
+        }
     }
     
     res.send(`
         <html>
-            <head><title>გადახდა ვერ მოხერხდა</title></head>
-            <body style="display: flex; justify-content: center; align-items: center; height: 100vh; font-family: Arial, sans-serif;">
-                <div style="text-align: center;">
-                    <h1 style="color: red;">❌ გადახდა ვერ მოხერხდა</h1>
-                    <p>გადახდის პროცესი ვერ შესრულდა. თქვენი შეკვეთის ID: <strong>${order_id || 'Unknown'}</strong></p>
+            <head>
+                <title>გადახდა ვერ მოხერხდა</title>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <style>
+                    body { 
+                        font-family: Arial, sans-serif; 
+                        display: flex; 
+                        justify-content: center; 
+                        align-items: center; 
+                        height: 100vh; 
+                        margin: 0; 
+                        background-color: #f5f5f5;
+                    }
+                    .container { 
+                        text-align: center; 
+                        background: white; 
+                        padding: 40px; 
+                        border-radius: 10px; 
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                        max-width: 400px;
+                    }
+                    h1 { color: red; margin-bottom: 20px; }
+                    p { margin: 10px 0; color: #333; }
+                    a { 
+                        color: #007bff; 
+                        text-decoration: none; 
+                        font-weight: bold; 
+                    }
+                    a:hover { text-decoration: underline; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>❌ გადახდა ვერ მოხერხდა</h1>
+                    <p>გადახდის პროცესი ვერ შესრულდა.</p>
+                    <p>თქვენი შეკვეთის ID: <strong>${order_id || 'Unknown'}</strong></p>
                     <p>გთხოვთ სცადოთ თავიდან ან დაგვიკავშირდეთ.</p>
                     <p><a href="/">დაბრუნება მთავარ გვერდზე</a></p>
                 </div>
@@ -485,7 +600,8 @@ app.get('/api/test-bog', async (req, res) => {
         res.status(500).json({ 
             success: false, 
             error: error.message,
-            credentials_configured: !!(BOG_CLIENT_ID && BOG_CLIENT_SECRET)
+            credentials_configured: !!(BOG_CLIENT_ID && BOG_CLIENT_SECRET),
+            timestamp: new Date().toISOString()
         });
     }
 });
@@ -501,13 +617,16 @@ app.get('/api/health', async (req, res) => {
             database: 'connected',
             bog_configured: !!(BOG_CLIENT_ID && BOG_CLIENT_SECRET),
             timestamp: new Date().toISOString(),
-            uptime: process.uptime()
+            uptime: process.uptime(),
+            environment: process.env.NODE_ENV || 'development'
         });
     } catch (error) {
+        console.error('Health check failed:', error);
         res.status(500).json({
             status: 'unhealthy',
             database: 'disconnected',
-            error: error.message
+            error: error.message,
+            timestamp: new Date().toISOString()
         });
     }
 });
