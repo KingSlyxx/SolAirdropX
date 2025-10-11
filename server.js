@@ -1,4 +1,4 @@
-// server.js (საბოლოო, შესწორებული ვერსია BOG და Telegram ფიქსებით)
+// server.js (საბოლოო, გამოსწორებული ვერსია BOG და Telegram ფიქსებით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -22,6 +22,7 @@ const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
 const DATABASE_URL = process.env.DATABASE_URL;
 
 // --- BOG Payment Credentials ---
+// **ყურადღება: გამოიყენეთ LIVE URL-ები LIVE Credentials-ით, ან TEST URL-ები TEST Credentials-ით**
 const BOG_CLIENT_ID = process.env.BOG_CLIENT_ID;
 const BOG_CLIENT_SECRET = process.env.BOG_CLIENT_SECRET;
 const BOG_TOKEN_URL = 'https://oauth2.bog.ge/auth/realms/bog/protocol/openid-connect/token';
@@ -332,8 +333,8 @@ app.post('/api/submit-order', async (req, res) => {
         
         const orderPayload = {
             purchase_units: [{
-                // **შესწორებული** -TotalPrice-ის გამოყენება
-                amount: amountInGEL,
+                // 🛑 ფიქსი: ფასის რიცხვის ფორმატის უზრუნველყოფა (GEL-ში)
+                amount: parseFloat(amountInGEL.toFixed(2)),
                 currency: "GEL",
                 capture_method: "AUTO",
                 items: bogItems,
@@ -411,8 +412,10 @@ app.post('/api/submit-order', async (req, res) => {
 
         const errorResponse = {
             success: false,
+            // შეცდომის შეტყობინება, რომელიც მომხმარებელმა ნახა
             error: 'შეკვეთის გაგზავნა ვერ მოხერხდა. გთხოვთ სცადოთ თავიდან ან დაგვიკავშირდეთ.',
             order_id: dbOrderId,
+            // ლოგირების დეტალები
             details: error.response?.data || error.message,
             credentials_configured: !!(BOG_CLIENT_ID && BOG_CLIENT_SECRET)
         };
