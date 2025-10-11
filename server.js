@@ -1,4 +1,4 @@
-// server.js (სრული ვერსია BOG გადახდით, პროდუქციის მენეჯმენტით და Live Chat-ით)
+// server.js (სრული, ერთიანი კოდი BOG გადახდის კრიტიკული შესწორებებით)
 
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -8,15 +8,16 @@ const path = require('path');
 const axios = require('axios');
 const FormData = require('form-data');
 const { Pool } = require('pg');
-const { URLSearchParams } = require('url');
+const { URLSearchParams } = require('url'); // აუცილებელია BOG ტოკენისთვის
 
 const app = express();
 const port = process.env.PORT || 8080;
 
 // --- გარემოს ცვლადები (ENV Variables) ---
-const ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN || '8151755873:AAEBrslgbP49Q3FiTSKAm7fyQchNbUMVSe0'; // ჩაანაცვლეთ ENV-დან
-const TELEGRAM_CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID; // ვიზიტორების და კალათის ნოტიფიკაცია
-const TELEGRAM_GROUP_ID = process.env.TELEGRAM_GROUP_ID || '-4644402426'; // ადმინ ჯგუფი (გაყიდვები, ჩატი)
+// გამოიყენეთ თქვენი რეალური ENV ცვლადები!
+const ADMIN_BOT_TOKEN = process.env.ADMIN_BOT_TOKEN || '8151755873:AAEBrslgbP49Q3FiTSKAm7fyQchNbUMVSe0';
+const TELEGRAM_CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID; 
+const TELEGRAM_GROUP_ID = process.env.TELEGRAM_GROUP_ID || '-4644402426'; 
 const IMGBB_API_KEY = process.env.IMGBB_API_KEY;
 const DATABASE_URL = process.env.DATABASE_URL;
 
@@ -32,7 +33,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// --- DB ინიციალიზაცია (დაემატა bog_order_id ველი) ---
+// --- DB ინიციალიზაცია ---
 const initializeDatabase = async () => {
     try {
         const client = await pool.connect();
@@ -54,7 +55,6 @@ const initializeDatabase = async () => {
                 qc_image_urls TEXT[]
             );
         `);
-        console.log('Products table is ready.');
 
         await client.query(`
             CREATE TABLE IF NOT EXISTS orders (
@@ -67,7 +67,7 @@ const initializeDatabase = async () => {
                 created_at TIMESTAMPTZ DEFAULT NOW()
             );
         `);
-        console.log('Orders table is ready.');
+        console.log('Database tables are ready.');
         client.release();
     } catch (err) {
         console.error('Failed to initialize database:', err);
@@ -79,7 +79,8 @@ const initializeDatabase = async () => {
 app.use(cors());
 app.use(express.static('public'));
 app.use(bodyParser.json());
-app.set('trust proxy', true);
+// აუცილებელია ჰოსტინგ პლატფორმებზე HTTPS პროტოკოლის სწორად ამოსაცნობად
+app.set('trust proxy', true); 
 
 // --- Global State for Telegram Bot ---
 const userState = {};
@@ -114,6 +115,7 @@ const createEditKeyboard = (productId) => ({
 
 const fieldPrompts = {
     name_ge: 'შეიყვანეთ ახალი სახელი (ქართულად):',
+    // ... [other field prompts]
     name_en: 'შეიყვანეთ ახალი სახელი (ინგლისურად):',
     price: 'შეიყვანეთ ახალი ფასი (მაგ: 129.99):',
     old_price: 'შეიყვანეთ ახალი ძველი ფასი (თუ არ აქვს, დაწერეთ 0):',
@@ -130,11 +132,10 @@ const fieldPrompts = {
 // --- API ენდპოინტები ---
 // ===============================================
 
-// --- 1. პროდუქციის გამოტანა (GET /api/products) - ხარვეზი გამოსწორებულია ---
+// --- 1. პროდუქციის გამოტანა ---
 app.get('/api/products', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM products ORDER BY id DESC');
-        // პროდუქციის ობიექტის სწორად ფორმატირება
         const products = result.rows.map(formatProductFromDb); 
         res.json(products);
     } catch (err) {
@@ -143,8 +144,7 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
-// --- 2. შეკვეთის გაგზავნა და BOG გადახდის ინიციალიზაცია ---
-// **გადახდის ღილაკს არ გადავყავარ ბანკის გვერდზე - ეს ხარვეზი გამოსწორდა**
+// --- 2. შეკვეთის გაგზავნა და BOG გადახდის ინიციალიზაცია (შესწორებული) ---
 app.post('/api/submit-order', async (req, res) => {
     const orderData = req.body;
     const { customer, items, totalPrice } = orderData;
@@ -152,9 +152,8 @@ app.post('/api/submit-order', async (req, res) => {
     
     const dbOrderId = `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`.toUpperCase();
     
-    // 1. შეკვეთის შენახვა ბაზაში (payment_pending სტატუსით)
+    // 1. შეკვეთის შენახვა ბაზაში
     try {
-        // bog_order_id ველი ჯერ ცარიელია (null)
         await pool.query(
             'INSERT INTO orders (order_id, customer_data, items, total_price, status) VALUES ($1, $2, $3, $4, $5)',
             [dbOrderId, JSON.stringify(customer), JSON.stringify(items), totalPrice, 'payment_pending']
@@ -165,7 +164,7 @@ app.post('/api/submit-order', async (req, res) => {
     }
 
     try {
-        // --- 2. BOG Token მიღება ---
+        // --- 2. BOG Token მიღება (კრიტიკული შესწორება) ---
         const tokenData = new URLSearchParams({
             'grant_type': 'client_credentials'
         });
@@ -176,16 +175,18 @@ app.post('/api/submit-order', async (req, res) => {
                 password: BOG_CLIENT_SECRET
             },
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
+                'Content-Type': 'application/x-www-form-urlencoded' // აუცილებელია
             },
             timeout: 30000
         });
 
         const token = tokenResponse.data.access_token;
+        if (!token) throw new Error('Failed to get BOG access token.');
 
         // --- 3. შეკვეთის შექმნა BOG-ში ---
         const host = req.headers.host;
-        const protocol = req.protocol; 
+        // პროტოკოლის სწორად მიღება ჰოსტინგზე (Railway, Heroku)
+        const protocol = req.header('x-forwarded-proto') || req.protocol; 
         const BASE_URL = `${protocol}://${host}`;
 
         const orderPayload = {
@@ -226,37 +227,39 @@ app.post('/api/submit-order', async (req, res) => {
                 [bogOrderId, dbOrderId]
             );
 
+            // წარმატებული პასუხი გადამისამართების ლინკით
             res.json({ 
                 success: true, 
                 redirect_url: paymentLink,
                 order_id: dbOrderId
             });
         } else {
-            throw new Error('Failed to get payment redirect URL or BOG Order ID');
+            console.error('BOG Order Creation Response:', orderResponse.data);
+            throw new Error('Failed to get payment redirect URL or BOG Order ID from BOG');
         }
 
     } catch (error) {
+        // აქ ვიღებთ დეტალურ შეცდომას, რამაც გამოიწვია "Order submission failed"
         console.error('BOG Payment Submission Error:', error.response?.data || error.message);
-        // სტატუსის განახლება წარუმატებლობის შემთხვევაში
+        
         await pool.query('UPDATE orders SET status = $1 WHERE order_id = $2', ['payment_init_failed', dbOrderId]); 
         
         res.status(500).json({
             success: false,
-            error: 'Order submission failed',
+            error: 'Order submission failed. Please try again later.',
             details: error.response?.data || error.message
         });
     }
 });
 
 
-// --- 3. BOG Callback / Webhook Endpoint (განახლებული) ---
+// --- 3. BOG Callback / Webhook Endpoint ---
 app.post('/api/payment-callback', async (req, res) => {
     try {
         const { order_id: bogOrderId, status, amount } = req.body; 
         
         if (!bogOrderId) return res.status(400).send('Missing BOG Order ID');
 
-        // 1. შეკვეთის მოძიება BOG ID-ის გამოყენებით
         const orderResult = await pool.query('SELECT order_id FROM orders WHERE bog_order_id = $1', [bogOrderId]);
         const order = orderResult.rows.length > 0 ? orderResult.rows[0] : null;
 
@@ -266,23 +269,13 @@ app.post('/api/payment-callback', async (req, res) => {
         }
         
         const dbOrderId = order.order_id;
-        
-        let newStatus = 'failed';
-        if (status === 'success') {
-            newStatus = 'paid';
-        } else if (status === 'pending') {
-            newStatus = 'pending';
-        } else if (status === 'canceled') {
-            newStatus = 'canceled';
-        }
+        let newStatus = status === 'success' ? 'paid' : status; 
 
-        // 2. შეკვეთის სტატუსის განახლება
         await pool.query(
             'UPDATE orders SET status = $1 WHERE order_id = $2',
             [newStatus, dbOrderId]
         );
 
-        // 3. ნოტიფიკაცია Telegram-ში
         if (adminBot && TELEGRAM_GROUP_ID) {
             let message = '';
             if (newStatus === 'paid') {
@@ -305,7 +298,7 @@ app.post('/api/payment-callback', async (req, res) => {
 
 
 // ===============================================
-// --- Telegram Bot Setup & Handlers ---
+// --- Telegram Bot Setup & Handlers (სრული ლოგიკა) ---
 // ===============================================
 
 let adminBot;
@@ -317,10 +310,9 @@ if (ADMIN_BOT_TOKEN) {
     const salesKeyboard = { keyboard: [[{ text: '/sales 3' }, { text: '/recent 5' }], [{ text: 'მთავარი მენიუ' }]], resize_keyboard: true };
     const resetState = (chatId) => delete userState[chatId];
     
-    // --- /start ბრძანების დამმუშავებელი ---
-    adminBot.onText(/\/start/, (msg) => {
+    // --- /start და მთავარი მენიუ ---
+    adminBot.onText(/\/start|მთავარი მენიუ/, (msg) => {
         resetState(msg.chat.id);
-        // **ხარვეზი გამოსწორებულია: /start რეაგირებს**
         adminBot.sendMessage(msg.chat.id, 'მოგესალმებით! აირჩიეთ მოქმედება:', { reply_markup: mainMenuKeyboard });
     });
     
@@ -336,17 +328,26 @@ if (ADMIN_BOT_TOKEN) {
         const months = match[1] || 3; 
         
         try {
-            // გამოიყენეთ შიდა ენდპოინტი
-            const response = await axios.get(`http://localhost:${port}/api/admin/sales-data?months=${months}`);
-            const data = response.data;
+            // აქ ვიყენებთ პირდაპირ DB-ს ლოგიკას, რადგან ტელეგრამის ბოტი სერვერზეა
+            const dateThreshold = new Date();
+            dateThreshold.setMonth(dateThreshold.getMonth() - parseInt(months));
+            
+            const revenueResult = await pool.query(
+                'SELECT SUM(total_price) as total_revenue FROM orders WHERE created_at >= $1 AND status = $2',
+                [dateThreshold, 'paid']
+            );
+            const salesResult = await pool.query(
+                'SELECT COUNT(*) as total_sales FROM orders WHERE created_at >= $1 AND status = $2',
+                [dateThreshold, 'paid']
+            );
 
             const message = `
 📊 **გაყიდვების მონაცემები (ბოლო ${months} თვე)**
 ------------------------------------
-💵 **საერთო შემოსავალი:** ${data.totalRevenue.toFixed(2)} GEL
-📦 **გაყიდვების რაოდენობა:** ${data.totalSales}
+💵 **საერთო შემოსავალი:** ${parseFloat(revenueResult.rows[0]?.total_revenue || 0).toFixed(2)} GEL
+📦 **გაყიდვების რაოდენობა:** ${parseInt(salesResult.rows[0]?.total_sales || 0)}
             `;
-            adminBot.sendMessage(chatId, message);
+            adminBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
 
         } catch (error) {
             console.error('Error fetching sales data for Telegram:', error.message);
@@ -375,13 +376,13 @@ if (ADMIN_BOT_TOKEN) {
             }
 
             const salesList = sales.map(s => {
-                const customer = JSON.parse(s.customer_data);
+                const customer = s.customer_data ? JSON.parse(s.customer_data) : {};
                 const date = new Date(s.created_at).toLocaleString('ka-GE');
                 return `
 ID: \`${s.order_id}\`
 ჯამი: ${s.total_price.toFixed(2)} GEL
 თარიღი: ${date}
-მომხმარებელი: ${customer.lastName || ''}
+მომხმარებელი: ${customer.lastName || 'უცნობი'}
                 `;
             }).join('\n---\n');
 
@@ -390,7 +391,7 @@ ID: \`${s.order_id}\`
 --------------------------------
 ${salesList}
             `;
-            adminBot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+            adminBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
 
         } catch (error) {
             console.error('Error fetching recent sales for Telegram:', error);
@@ -418,6 +419,7 @@ ${salesList}
         const chatId = msg.chat.id;
         const [action, ...params] = data.split('_');
         try {
+            // Gender Selection and Product List
             if (action === 'view' && params[0] === 'gender') {
                 const gender = params[1];
                 await adminBot.answerCallbackQuery(callbackQuery.id);
@@ -439,17 +441,21 @@ ${salesList}
                 userState[chatId] = { step: 'awaiting_product_id_for_manage' };
                 
                 await adminBot.deleteMessage(chatId, msg.message_id);
-                await adminBot.sendMessage(chatId, `**პროდუქტების სია:**\n\n${productList}\n\nშეიყვანეთ პროდუქტის ID მის სამართავად (მაგ: 5).`, { reply_markup: { force_reply: true } });
+                await adminBot.sendMessage(chatId, `**პროდუქტების სია:**\n\n${productList}\n\nშეიყვანეთ პროდუქტის ID მის სამართავად (მაგ: 5).`, { reply_markup: { force_reply: true, selective: true } });
                 return;
             }
 
+            // Delete Action
             if (action === 'delete') {
                 const [productId] = params;
                 await pool.query('DELETE FROM products WHERE id = $1', [productId]);
                 await adminBot.answerCallbackQuery(callbackQuery.id, { text: 'პროდუქტი წაიშალა!' });
                 await adminBot.deleteMessage(chatId, msg.message_id);
-                adminBot.sendMessage(chatId, `✅ პროდუქტი ID:${productId} წარმატებით წაიშალა.`);
+                adminBot.sendMessage(chatId, `✅ პროდუქტი ID:${productId} წარმატებით წაიშალა.`, { reply_markup: mainMenuKeyboard });
+                return;
             }
+            
+            // Edit Product View
             if (action === 'edit' && params.length === 1) {
                 const [productId] = params;
                 const result = await pool.query('SELECT * FROM products WHERE id = $1', [productId]);
@@ -461,13 +467,16 @@ ${salesList}
                 const caption = `ID: ${f.id}\nსახელი: ${f.name.ge}\nფასი: ₾${f.price}\n\nაირჩიეთ ველი რედაქტირებისთვის:`;
                 const editKeyboard = createEditKeyboard(productId);
                 
+                await adminBot.answerCallbackQuery(callbackQuery.id);
                 if (msg.photo) {
                     await adminBot.editMessageCaption(caption, { chat_id: chatId, message_id: msg.message_id, reply_markup: editKeyboard });
                 } else {
                     await adminBot.editMessageText(caption, { chat_id: chatId, message_id: msg.message_id, reply_markup: editKeyboard });
                 }
-                await adminBot.answerCallbackQuery(callbackQuery.id);
+                return;
             }
+            
+            // Edit Field Selection
             if (action === 'edit' && params.length > 1) {
                 const [field, productId] = [params[0], params[params.length - 1]];
                 const fullFieldName = params.slice(0, -1).join('_');
@@ -479,12 +488,16 @@ ${salesList}
                     userState[chatId] = { step: 'awaiting_edit_input', field: fullFieldName, productId: productId };
                 }
                 await adminBot.answerCallbackQuery(callbackQuery.id);
-                adminBot.sendMessage(chatId, prompt, { reply_markup: { force_reply: true } });
+                adminBot.sendMessage(chatId, prompt, { reply_markup: { force_reply: true, selective: true } });
+                return;
             }
+            
+            // Back to Products
             if (action === 'back' && params[0] === 'to' && params[1] === 'products') {
                 await adminBot.answerCallbackQuery(callbackQuery.id);
                 await adminBot.deleteMessage(chatId, msg.message_id);
                 adminBot.emit('message', { chat: { id: chatId }, text: 'პროდუქტების ნახვა' });
+                return;
             }
         } catch (err) {
             console.error('Callback query error:', err);
@@ -492,18 +505,17 @@ ${salesList}
         }
     });
 
+    // --- პროდუქტის დამატება Flow Start ---
     adminBot.onText(/პროდუქტის დამატება/, (msg) => {
         userState[msg.chat.id] = { step: 'awaiting_name_ge', product: {} };
         adminBot.sendMessage(msg.chat.id, 'შეიყვანეთ პროდუქტის სახელი (ქართულად):', { reply_markup: { force_reply: true } });
     });
     
-    adminBot.onText(/მთავარი მენიუ/, (msg) => {
-        resetState(msg.chat.id);
-        adminBot.sendMessage(msg.chat.id, 'მთავარი მენიუ:', { reply_markup: mainMenuKeyboard });
-    });
-
+    // --- Message Handler (General input and steps) ---
     adminBot.on('message', async (msg) => {
-        // Live Chat Response Handling
+        const chatId = msg.chat.id;
+
+        // 1. Live Chat Response Handling
         if (msg.reply_to_message && msg.reply_to_message.from.is_bot && msg.text) {
             const originalMessage = msg.reply_to_message.text;
             const sessionIdMatch = originalMessage.match(/\[Session ID: (\w+)\]/);
@@ -511,8 +523,10 @@ ${salesList}
                 const sessionId = sessionIdMatch[1];
                 const session = chatSessions.get(sessionId);
                 if (session) {
+                    // Send message to the user via chat endpoint
                     session.pendingMessages.push(msg.text);
                     chatSessions.set(sessionId, session);
+                    adminBot.sendMessage(chatId, `✅ პასუხი გაიგზავნა Session ID: ${sessionId}-ზე.`, { reply_to_message_id: msg.message_id });
                     return; 
                 }
             }
@@ -522,12 +536,11 @@ ${salesList}
         const commandText = ['პროდუქტების ნახვა', 'პროდუქტის დამატება', 'გაყიდვების მონაცემები', 'მთავარი მენიუ'];
         if (commandText.includes(msg.text) && !msg.reply_to_message) return;
         
-        const state = userState[msg.chat.id];
+        const state = userState[chatId];
         if (!state) return; 
         
-        const chatId = msg.chat.id;
         try {
-            // Product ID for management
+            // 2. Product ID for management
             if (state.step === 'awaiting_product_id_for_manage') {
                 const productId = parseInt(msg.text, 10);
                 if (isNaN(productId)) {
@@ -539,7 +552,7 @@ ${salesList}
                 }
                 const p = result.rows[0];
                 const f = formatProductFromDb(p);
-                const caption = `ID: ${f.id}\nსახელი: ${f.name.ge}\nფასი: ₾${f.price}${f.oldPrice ? ` (ძველი: ₾${f.oldPrice})` : ''}`;
+                const caption = `ID: ${f.id}\nსახელი: ${f.name.ge}\nფასი: ₾${f.price}${f.oldPrice ? ` (ძველი: ₾${f.oldPrice})` : ''}\n\n**რედაქტირებისთვის დააჭირეთ ღილაკს:**`;
                 const inlineKeyboard = { inline_keyboard: [[{ text: 'რედაქტირება', callback_data: `edit_${p.id}` }, { text: 'წაშლა', callback_data: `delete_${p.id}` }]] };
 
                 resetState(chatId);
@@ -552,7 +565,7 @@ ${salesList}
                 return;
             }
 
-            // Product Editing Input
+            // 3. Product Editing Input
             if (state.step === 'awaiting_edit_input') {
                 let value = msg.text;
                 if (['price', 'old_price'].includes(state.field)) {
@@ -561,20 +574,21 @@ ${salesList}
                 }
                 if (state.field === 'sizes') { value = msg.text.split(',').map(s => s.trim().toUpperCase()); }
                 await pool.query(`UPDATE products SET ${state.field} = $1 WHERE id = $2`, [value, state.productId]);
-                adminBot.sendMessage(chatId, `✅ ველი წარმატებით განახლდა.`);
-                resetState(chatId);
-                return;
-            }
-            // Product Editing Images (Done)
-            if (state.step === 'awaiting_edit_images' && msg.text.toLowerCase() === 'done') {
-                if (!state.newUrls || state.newUrls.length === 0) { return adminBot.sendMessage(chatId, "გთხოვთ, მინიმუმ ერთი ახალი ფოტო ატვირთოთ ან დაწერეთ 'cancel'."); }
-                await pool.query(`UPDATE products SET ${state.field} = $1 WHERE id = $2`, [state.newUrls, state.productId]);
-                adminBot.sendMessage(chatId, `✅ ფოტო(ები) წარმატებით განახლდა.`);
+                adminBot.sendMessage(chatId, `✅ ველი წარმატებით განახლდა.`, { reply_markup: mainMenuKeyboard });
                 resetState(chatId);
                 return;
             }
             
-            // Product Addition Flow
+            // 4. Product Editing Images (Done)
+            if (state.step === 'awaiting_edit_images' && msg.text.toLowerCase() === 'done') {
+                if (!state.newUrls || state.newUrls.length === 0) { return adminBot.sendMessage(chatId, "გთხოვთ, მინიმუმ ერთი ახალი ფოტო ატვირთოთ ან დაწერეთ 'cancel'."); }
+                await pool.query(`UPDATE products SET ${state.field} = $1 WHERE id = $2`, [state.newUrls, state.productId]);
+                adminBot.sendMessage(chatId, `✅ ფოტო(ები) წარმატებით განახლდა.`, { reply_markup: mainMenuKeyboard });
+                resetState(chatId);
+                return;
+            }
+            
+            // 5. Product Addition Flow
             switch (state.step) {
                 case 'awaiting_name_ge': state.product.name_ge = msg.text; state.step = 'awaiting_name_en'; adminBot.sendMessage(chatId, 'შეიყვანეთ პროდუქტის სახელი (ინგლისურად):', { reply_markup: { force_reply: true } }); break;
                 case 'awaiting_name_en': state.product.name_en = msg.text; state.step = 'awaiting_price'; adminBot.sendMessage(chatId, 'შეიყვანეთ ფასი (მაგ: 129.99):', { reply_markup: { force_reply: true } }); break;
@@ -592,18 +606,19 @@ ${salesList}
                         const query = `INSERT INTO products (name_ge, name_en, price, old_price, description_ge, description_en, category, gender, sizes, image_urls, qc_image_urls) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id;`; 
                         const values = [p.name_ge, p.name_en, p.price, p.old_price, p.description_ge, p.description_en, p.category, p.gender, p.sizes, p.imageUrls, p.qcImageUrls || []]; 
                         const result = await pool.query(query, values); 
-                        adminBot.sendMessage(chatId, `პროდუქტი (ID: ${result.rows[0].id}) წარმატებით დაემატა.`, { reply_markup: mainMenuKeyboard }); 
+                        adminBot.sendMessage(chatId, `✅ პროდუქტი (ID: ${result.rows[0].id}) წარმატებით დაემატა.`, { reply_markup: mainMenuKeyboard }); 
                         resetState(chatId); 
                     } 
                     break;
             }
         } catch (e) { 
             console.error('Product management error:', e);
-            adminBot.sendMessage(chatId, `დაფიქსირდა შეცდომა: ${e.message}\nსცადეთ თავიდან.`); 
+            adminBot.sendMessage(chatId, `დაფიქსირდა შეცდომა: ${e.message}\nსცადეთ თავიდან.`, { reply_markup: mainMenuKeyboard }); 
             resetState(chatId); 
         }
     });
 
+    // --- Photo Handler (Image Upload) ---
     adminBot.on('photo', async (msg) => {
         const chatId = msg.chat.id;
         const state = userState[chatId];
@@ -689,7 +704,7 @@ app.get('/api/chat-response/:sessionId', (req, res) => {
 });
 
 // ===============================================
-// --- Other Utility Endpoints ---
+// --- Other Utility Endpoints (მოკლედ) ---
 // ===============================================
 
 app.get('/api/orders', async (req, res) => {
@@ -703,9 +718,7 @@ app.get('/api/orders', async (req, res) => {
 });
 
 app.post('/api/visitor', async (req, res) => {
-    if (!adminBot || !TELEGRAM_CHANNEL_ID) {
-        return res.status(200).json({ success: true, message: 'Visitor noted, but notifications are disabled.' });
-    }
+    if (!adminBot || !TELEGRAM_CHANNEL_ID) return res.status(200).json({ success: true, message: 'Notifications disabled.' });
     const ip = req.ip;
     let message = `👤 *ახალი ვიზიტორი საიტზე*\n\n- *IP მისამართი:* \`${ip}\``;
     try {
@@ -716,26 +729,18 @@ app.post('/api/visitor', async (req, res) => {
             message += `\n- *ქალაქი:* ${city}`;
             message += `\n- *პროვაიდერი:* ${isp}`;
         }
-    } catch (e) { console.error(`Could not fetch geolocation for IP: ${ip}`, e.message); }
-    try {
         await adminBot.sendMessage(TELEGRAM_CHANNEL_ID, message, { parse_mode: 'Markdown' });
-        res.status(200).json({ success: true, message: 'Notification sent' });
-    } catch (e) {
-        console.error("Failed to send visitor notification to Telegram:", e.message);
-        res.status(500).json({ success: false, message: 'Failed to send notification' });
+        res.status(200).json({ success: true });
+    } catch (e) { 
+        console.error("Failed to send visitor notification:", e.message);
+        res.status(500).json({ success: false }); 
     }
 });
 
 app.post('/api/cart/add', async (req, res) => {
-    if (!adminBot || !TELEGRAM_CHANNEL_ID) {
-        return res.status(200).json({ success: true, message: 'Cart action noted, but notifications are disabled.' });
-    }
-
+    if (!adminBot || !TELEGRAM_CHANNEL_ID) return res.status(200).json({ success: true, message: 'Notifications disabled.' });
     const { product } = req.body; 
-
-    if (!product || !product.name || !product.price) {
-        return res.status(400).json({ success: false, message: 'Product data is missing or invalid.' });
-    }
+    if (!product || !product.name || !product.price) return res.status(400).json({ success: false, message: 'Product data invalid.' });
 
     const ip = req.ip;
     let message = `🛒 *კალათაში დამატება*\n\n*პროდუქტი:*\n- დასახელება: *${product.name}*\n- ფასი: *₾${product.price}*\n`;
@@ -746,17 +751,11 @@ app.post('/api/cart/add', async (req, res) => {
             const { country, countryCode, city } = geoResponse.data;
             message += `\n*ვიზიტორის ინფორმაცია:*\n- IP: \`${ip}\`\n- ლოკაცია: ${city}, ${country} (${countryCode})`;
         }
-    } catch (e) {
-        message += `\n*ვიზიტორის ინფორმაცია:*\n- IP: \`${ip}\`\n- ლოკაცია: უცნობი`;
-        console.error(`Could not fetch geolocation for IP: ${ip}`, e.message);
-    }
-
-    try {
         await adminBot.sendMessage(TELEGRAM_CHANNEL_ID, message, { parse_mode: 'Markdown' });
-        res.status(200).json({ success: true, message: 'Cart notification sent' });
+        res.status(200).json({ success: true });
     } catch (e) {
-        console.error("Failed to send cart notification to Telegram:", e.message);
-        res.status(500).json({ success: false, message: 'Failed to send notification' });
+        console.error("Failed to send cart notification:", e.message);
+        res.status(500).json({ success: false });
     }
 });
 
@@ -765,9 +764,7 @@ app.get('/api/order-status/:orderId', async (req, res) => {
         const { orderId } = req.params;
         const result = await pool.query('SELECT status FROM orders WHERE order_id = $1', [orderId]);
         
-        if (result.rows.length === 0) {
-            return res.status(404).json({ success: false, message: 'Order not found' });
-        }
+        if (result.rows.length === 0) return res.status(404).json({ success: false, message: 'Order not found' });
         
         res.json({ success: true, status: result.rows[0].status });
     } catch (error) {
