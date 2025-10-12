@@ -120,6 +120,7 @@ const fieldPrompts = {
     qc_image_urls: "ატვირთეთ ახალი QC ფოტო(ები). ძველები წაიშლება. დასრულებისას დაწერეთ 'done'."
 };
 
+
 // ===============================================
 // --- API ენდპოინტები ---
 // ===============================================
@@ -159,73 +160,49 @@ app.post('/api/submit-order', async (req, res) => {
     const dbOrderId = `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`.toUpperCase();
     console.log('🆔 Generated order ID:', dbOrderId);
 
-    // შეკვეთის შენახვა ბაზაში (სტატუსით 'მიღებულია' ან 'new_order')
+    // 1. შეკვეთის შენახვა ბაზაში (მიღებულია სტატუსით)
     try {
         await pool.query(
             'INSERT INTO orders (order_id, customer_data, items, total_price, status) VALUES ($1, $2, $3, $4, $5)',
-            [dbOrderId, JSON.stringify(customer), JSON.stringify(items), totalPrice, 'მიღებულია'] // სტატუსი 'მიღებულია'
+            [dbOrderId, JSON.stringify(customer), JSON.stringify(items), totalPrice, 'მიღებულია'] // სტატუსი: 'მიღებულია'
         );
         console.log('✅ Order saved to database successfully with status: მიღებულია');
-        
-        // Telegram ნოტიფიკაცია ახალი შეკვეთის შესახებ
-        if (adminBot && TELEGRAM_GROUP_ID) {
-            const customerName = customer.firstName || '';
-            const customerLastName = customer.lastName || '';
-            const message = `
-🔔 **ახალი შეკვეთა მიღებულია**
-------------------------------------
-*შეკვეთის ID:* \`${dbOrderId}\`
-*ჯამური თანხა:* ${totalPrice.toFixed(2)} GEL
-*სტატუსი:* მიღებულია
-*მომხმარებელი:* ${customerName} ${customerLastName}
-*ტელეფონი:* \`${customer.phone || 'N/A'}\`
-*ელ. ფოსტა:* \`${customer.email || 'N/A'}\`
-            `;
-            await adminBot.sendMessage(TELEGRAM_GROUP_ID, message, { parse_mode: 'Markdown' });
-        }
-
-        // ლოგიკა გადამისამართებისთვის (რადგან გადახდა არ ხდება, წარმატების ეკრანზე გადასვლა)
-        const host = req.headers.host;
-        const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-        const BASE_URL = `${protocol}://${host}`;
-        const successUrl = `${BASE_URL}/success-order?order_id=${dbOrderId}`;
-
-        res.json({ 
-            success: true, 
-            redirect_url: successUrl,
-            order_id: dbOrderId,
-            message: 'Order saved successfully. No payment initiated.'
-        });
     } catch (dbError) {
         console.error('❌ DB Error saving order:', dbError);
-        res.status(500).json({ 
+        return res.status(500).json({ 
             success: false, 
             error: 'Failed to save order to database',
             order_id: dbOrderId
         });
     }
-});
 
-// --- 3. წარმატებული შეკვეთის გვერდი (გადახდის გარეშე) ---
-app.get('/success-order', async (req, res) => {
-    const { order_id } = req.query;
+    // 2. ნოტიფიკაცია Telegram-ში
+    if (adminBot && TELEGRAM_GROUP_ID) {
+        const message = `
+📦 **ახალი შეკვეთა მიღებულია**
+*შეკვეთის ID:* \`${dbOrderId}\`
+*მომხმარებელი:* ${customer.firstName} ${customer.lastName}
+*მისამართი:* ${customer.address}
+*ტელეფონი:* ${customer.phone}
+*ჯამი:* ₾${totalPrice.toFixed(2)}
+*სტატუსი:* მიღებულია (გადახდა მოსალოდნელია სხვა მეთოდით)
+        `;
+        try {
+            await adminBot.sendMessage(TELEGRAM_GROUP_ID, message, { parse_mode: 'Markdown' });
+        } catch (e) {
+            console.error('Failed to send new order notification:', e.message);
+        }
+    }
     
-    res.send(`
-        <html>
-            <head><title>შეკვეთა მიღებულია</title></head>
-            <body style="display: flex; justify-content: center; align-items: center; height: 100vh; font-family: Arial, sans-serif;">
-                <div style="text-align: center;">
-                    <h1 style="color: green;">✅ შეკვეთა წარმატებით მიღებულია!</h1>
-                    <p>გმადლობთ შეკვეთისთვის. თქვენი შეკვეთის ID: <strong>${order_id || 'Unknown'}</strong></p>
-                    <p>ოპერატორი მალე დაგიკავშირდებათ დეტალების შესათანხმებლად.</p>
-                    <p>შეკვეთის სტატუსის შესამოწმებლად გადადით <a href="/">მთავარ გვერდზე</a>.</p>
-                </div>
-            </body>
-        </html>
-    `);
+    // 3. წარმატების დაბრუნება (არ არის გადამისამართება გადახდის ბმულზე)
+    res.json({ 
+        success: true, 
+        message: 'Order received. Awaiting payment/confirmation.',
+        order_id: dbOrderId
+    });
 });
 
-// --- 4. სერვერის ჯანმრთელობის შემოწმება ---
+// --- 3. სერვერის ჯანმრთელობის შემოწმება ---
 app.get('/api/health', async (req, res) => {
     try {
         // ბაზასთან კავშირის შემოწმება
@@ -277,30 +254,17 @@ if (ADMIN_BOT_TOKEN) {
         const months = match[1] || 3; 
         
         try {
-             // ეს API ზარი შეიცვლება ლოკალურით რადგან არ არის BOG ინტეგრაცია
-             const dateThreshold = new Date();
-             dateThreshold.setMonth(dateThreshold.getMonth() - parseInt(months));
-     
-             const revenueResult = await pool.query(
-                 'SELECT SUM(total_price) as total_revenue FROM orders WHERE created_at >= $1 AND status = $2',
-                 [dateThreshold, 'მიღებულია'] // სტატუსი 'მიღებულია'
-             );
-             
-             const salesResult = await pool.query(
-                 'SELECT COUNT(*) as total_sales FROM orders WHERE created_at >= $1 AND status = $2',
-                 [dateThreshold, 'მიღებულია'] // სტატუსი 'მიღებულია'
-             );
-     
-             const totalRevenue = parseFloat(revenueResult.rows[0]?.total_revenue || 0);
-             const totalSales = parseInt(salesResult.rows[0]?.total_sales || 0);
+            // Note: The /sales endpoint is still needed for Telegram, but it must be functional without the BOG parts
+            const response = await axios.get(`http://localhost:${port}/api/admin/sales-data?months=${months}`); // Assuming local port for internal call
+            const data = response.data;
 
             const message = `
-📊 **შეკვეთების მონაცემები (ბოლო ${months} თვე)**
+📊 **გაყიდვების მონაცემები (ბოლო ${months} თვე)**
 ------------------------------------
-💵 **შეკვეთების ჯამური თანხა:** ${totalRevenue.toFixed(2)} GEL
-📦 **შეკვეთების რაოდენობა:** ${totalSales}
+💵 **საერთო შემოსავალი:** ${data.totalRevenue.toFixed(2)} GEL
+📦 **გაყიდვების რაოდენობა:** ${data.totalSales}
             `;
-            adminBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+            adminBot.sendMessage(chatId, message);
 
         } catch (error) {
             console.error('Error fetching sales data for Telegram:', error.message);
@@ -317,10 +281,12 @@ if (ADMIN_BOT_TOKEN) {
             const recentSalesQuery = `
                 SELECT order_id, total_price, created_at, customer_data
                 FROM orders 
+                WHERE status != $1 
                 ORDER BY created_at DESC 
-                LIMIT $1
+                LIMIT $2
             `;
-            const result = await pool.query(recentSalesQuery, [limit]);
+            // სტატუსი "paid" შეიცვალა "!= 'failed'" ან სხვა შესაბამისი სტატუსით, რადგან ახლა ავტომატურად 'მიღებულია' არის
+            const result = await pool.query(recentSalesQuery, ['failed', limit]);
             const sales = result.rows;
 
             if (sales.length === 0) {
@@ -343,7 +309,7 @@ ID: \`${s.order_id}\`
 --------------------------------
 ${salesList}
             `;
-            adminBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+            adminBot.sendMessage(chatId, message, { parse_mode: 'HTML' });
 
         } catch (error) {
             console.error('Error fetching recent sales for Telegram:', error);
@@ -398,7 +364,7 @@ ${salesList}
 
             if (action === 'delete') {
                 const [productId] = params;
-                await pool.query('DELETE FROM products WHERE id = $1', [productId]);
+                await pool.query('DELETE INTO products WHERE id = $1', [productId]);
                 await adminBot.answerCallbackQuery(callbackQuery.id, { text: 'პროდუქტი წაიშალა!' });
                 await adminBot.deleteMessage(chatId, msg.message_id);
                 adminBot.sendMessage(chatId, `✅ პროდუქტი ID:${productId} წარმატებით წაიშალა.`);
@@ -735,25 +701,28 @@ app.get('/api/admin/sales-data', async (req, res) => {
         const { months = 3 } = req.query;
         const dateThreshold = new Date();
         dateThreshold.setMonth(dateThreshold.getMonth() - parseInt(months));
+
+        // Assuming 'მიღებულია' (received) is the successful sale status in this simplified model, 
+        // or you'd need another status like 'confirmed' or 'shipped'.
+        // For the sake of simplicity, we consider any non-failed order as 'sale'.
         
-        // ვინაიდან გადახდა არ ხდება, ყველა შეკვეთა ითვლება 'მიღებულია' სტატუსით
         const revenueResult = await pool.query(
-            'SELECT SUM(total_price) as total_revenue FROM orders WHERE created_at >= $1',
-            [dateThreshold]
+            'SELECT SUM(total_price) as total_revenue FROM orders WHERE created_at >= $1 AND status != $2',
+            [dateThreshold, 'failed']
         );
         
         const salesResult = await pool.query(
-            'SELECT COUNT(*) as total_sales FROM orders WHERE created_at >= $1',
-            [dateThreshold]
+            'SELECT COUNT(*) as total_sales FROM orders WHERE created_at >= $1 AND status != $2',
+            [dateThreshold, 'failed']
         );
         
         const recentSalesResult = await pool.query(
             `SELECT order_id, customer_data, items, total_price, created_at 
              FROM orders 
-             WHERE created_at >= $1 
+             WHERE created_at >= $1 AND status != $2 
              ORDER BY created_at DESC 
              LIMIT 10`,
-            [dateThreshold]
+            [dateThreshold, 'failed']
         );
 
         res.json({
@@ -772,13 +741,12 @@ app.get('/api/admin/sales-data', async (req, res) => {
 // ===============================================
 app.listen(port, async () => {
   console.log(`🚀 Server is running on port ${port}`);
-  console.log('❌ BOG Payment system integration: REMOVED');
+  console.log(`❌ External Payment Integration: REMOVED (No BOG or any other payment system)`);
   
   await initializeDatabase();
   
   console.log(`🌐 Available endpoints:`);
   console.log(`   GET  /api/health - Server health check`);
   console.log(`   GET  /api/products - Products list`);
-  console.log(`   POST /api/submit-order - Submit order (No Payment)`);
-  console.log(`   GET  /success-order - Order success page`);
+  console.log(`   POST /api/submit-order - Submit order (No payment required)`);
 });
